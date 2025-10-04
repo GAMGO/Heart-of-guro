@@ -17,10 +17,10 @@ function useEdgeE() {
   const eRef = useRef(false)
   const prev = useRef(false)
   useEffect(() => {
-    const d = (e) => { if (e.code === "KeyE") eRef.current = true }
+    const d = (e) => { if (e.code === "KeyE") { eRef.current = true; e.preventDefault() } }
     const u = (e) => { if (e.code === "KeyE") eRef.current = false }
-    window.addEventListener("keydown", d)
-    window.addEventListener("keyup", u)
+    window.addEventListener("keydown", d, { passive: false })
+    window.addEventListener("keyup", u, { passive: false })
     return () => { window.removeEventListener("keydown", d); window.removeEventListener("keyup", u) }
   }, [])
   return () => {
@@ -45,6 +45,7 @@ function Stage3Inner({ setWaterUI, onPositionUpdate }) {
   const worldBox = useRef(new THREE.Box3())
   const ceilY = useRef(12)
   const doorState = useRef("CLOSED")
+  const busy = useRef(false)
   const edgeE = useEdgeE()
 
   const sim = useVerticalHydroReal(
@@ -74,6 +75,7 @@ function Stage3Inner({ setWaterUI, onPositionUpdate }) {
       a.clampWhenFinished = true
       a.enabled = true
       a.stop()
+      a.time = 0
       map[key] = a
     }
     actionsRef.current = map
@@ -86,7 +88,7 @@ function Stage3Inner({ setWaterUI, onPositionUpdate }) {
     }
   }
 
-  const stopAll = () => { Object.values(actionsRef.current).forEach((a) => a && a.stop()) }
+  const stopAll = () => { Object.values(actionsRef.current).forEach((a) => { if (a) { a.stop(); a.enabled = false } }) }
   const setPoseEnd = (action) => {
     if (!action) return
     stopAll()
@@ -100,8 +102,10 @@ function Stage3Inner({ setWaterUI, onPositionUpdate }) {
     action.setEffectiveTimeScale(0)
     if (mixerRef.current) mixerRef.current.update(0)
   }
-  const playOnce = (action, cb) => {
-    if (!action) { cb && cb(); return }
+  const playOnce = (action) => new Promise((res) => {
+    if (!action) { res(); return }
+    stopAll()
+    action.enabled = true
     action.reset()
     action.setLoop(THREE.LoopOnce, 1)
     action.setEffectiveTimeScale(1)
@@ -110,30 +114,30 @@ function Stage3Inner({ setWaterUI, onPositionUpdate }) {
     const onFinish = (e) => {
       if (e.action === action) {
         mixerRef.current.removeEventListener("finished", onFinish)
-        cb && cb()
+        res()
       }
     }
     mixerRef.current.addEventListener("finished", onFinish)
-  }
+  })
 
   useEffect(() => {
     const s = gltf.scene
     poolRef.current = s
     s.updateMatrixWorld(true)
     const colliders = []
+    const isMagenta = (c) => c && Math.abs(c.r - 1) < 0.12 && c.g < 0.12 && Math.abs(c.b - 1) < 0.12
     s.traverse((o) => {
       if (!o.isMesh) return
       const n = (o.name || "").toLowerCase()
       const c = o.material?.color
-      const m = c && Math.abs(c.r - 1) + Math.abs(c.g - 0) + Math.abs(c.b - 1) < 0.4
-      const isCollider = n.includes("collider") || n.includes("collision") || m
-      if (isCollider) {
-        o.visible = false
+      const isPink = isMagenta(c)
+      const isNamedPink = n.includes("pink") || n.includes("magenta")
+      const isSpaceshipPink = n.includes("spaceship") && isPink
+      if (isPink || isNamedPink || isSpaceshipPink) {
         if (o.geometry.isBufferGeometry) {
           colliders.push({ geometry: o.geometry, matrix: o.matrixWorld.clone() })
         }
       }
-      if (n.includes("nasa") || n.includes("pgt")) o.visible = false
     })
     const combined = [...colliders, { geometry: customColliderGeometry, matrix: customColliderMatrix }]
     setColliderData(combined)
@@ -146,7 +150,7 @@ function Stage3Inner({ setWaterUI, onPositionUpdate }) {
     scene.fog = new THREE.FogExp2("#a3d7ff", 0.0)
     gl.setClearColor("#87cefa", 1)
     buildActions()
-    const { closed, close, open, opened } = doorKeysRef.current
+    const { closed, close, opened, open } = doorKeysRef.current
     if (closed) setPoseEnd(closed)
     else if (close) setPoseEnd(close)
     else if (opened) setPoseEnd(opened)
@@ -174,29 +178,39 @@ function Stage3Inner({ setWaterUI, onPositionUpdate }) {
     const { x, y, z } = sim.step(dt, forward, right)
     camera.position.set(x, y, z)
     onPositionUpdate?.({ x, y, z })
-    if (edgeE()) {
+  })
+
+  useEffect(() => {
+    let cancel = false
+    const handleToggle = async () => {
+      if (!edgeE() || busy.current) return
+      busy.current = true
       const { open, opened, close, closed } = doorKeysRef.current
-      if (doorState.current === "CLOSED" || doorState.current === "CLOSING") {
-        const to = open || close
-        if (to) {
-          doorState.current = "OPENING"
-          playOnce(to, () => {
-            doorState.current = "OPENED"
-            setPoseEnd(opened || open || close)
-          })
-        }
+      if (doorState.current === "CLOSED") {
+        await playOnce(open)
+        if (!cancel) setPoseEnd(opened || open)
+        if (!cancel) doorState.current = "OPENED"
+      } else if (doorState.current === "OPENED") {
+        await playOnce(close)
+        if (!cancel) setPoseEnd(closed || close)
+        if (!cancel) doorState.current = "CLOSED"
+      } else if (doorState.current === "OPENING" || doorState.current === "CLOSING") {
       } else {
-        const to = close || open
-        if (to) {
-          doorState.current = "CLOSING"
-          playOnce(to, () => {
-            doorState.current = "CLOSED"
-            setPoseEnd(closed || close || open)
-          })
+        if (doorState.current !== "OPENED") {
+          await playOnce(open)
+          if (!cancel) setPoseEnd(opened || open)
+          if (!cancel) doorState.current = "OPENED"
+        } else {
+          await playOnce(close)
+          if (!cancel) setPoseEnd(closed || close)
+          if (!cancel) doorState.current = "CLOSED"
         }
       }
+      setTimeout(() => { if (!cancel) busy.current = false }, 120)
     }
-  })
+    const id = setInterval(handleToggle, 16)
+    return () => { cancel = true; clearInterval(id) }
+  }, [])
 
   return (
     <>
@@ -205,7 +219,7 @@ function Stage3Inner({ setWaterUI, onPositionUpdate }) {
         <torusGeometry args={[0.8, 0.02, 16, 64]} />
         <meshBasicMaterial color={RING_COLOR} transparent opacity={0.9} />
       </mesh>
-      <mesh name="spaceship_uv_collider_visual" position={[-5.489, 0, -8.0]} rotation={[0, 0, 0]} visible={false}>
+      <mesh name="spaceship_uv_collider_visual" position={[-5.489, 0, -8.0]} rotation={[0, 0, 0]}>
         <boxGeometry args={[4, 4, 0.5]} />
         <meshBasicMaterial color="red" />
       </mesh>
@@ -220,7 +234,7 @@ export default function Stage3() {
     <div style={{ position: "fixed", inset: 0, overflow: "hidden", background: "#000" }}>
       {!locked && (
         <div className="lock-hint" onClick={() => document.querySelector("canvas")?.dispatchEvent(new MouseEvent("click", { bubbles: true }))}>
-          클릭해서 조작 시작 (WASD, Shift)
+          클릭해서 조작 시작 (WASD, Shift, E)
         </div>
       )}
       <div className="quest-panel">
