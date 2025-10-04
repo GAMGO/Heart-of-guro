@@ -7,6 +7,8 @@ import {
   useAnimations,
 } from "@react-three/drei";
 import * as THREE from "three";
+import useVerticalHydroReal from "../../physics/useVerticalHydroReal";
+import { buildEmuNblConfig } from "../../physics/nasaPresets";
 import "./Stage2.css";
 
 useGLTF.preload("/pool.glb");
@@ -120,6 +122,8 @@ function Stage2Inner({ onPositionUpdate, onRepairStart, onRepairComplete }) {
   const RING_COLOR = "#ff3030";
   const REPAIR_DISTANCE = 2.0;
 
+  const hydro = useVerticalHydroReal(buildEmuNblConfig({ ballastKg: 5 }));
+
   useEffect(() => {
     if (isRPressed) {
       const distance = player.current.distanceTo(RING_POS);
@@ -209,6 +213,7 @@ function Stage2Inner({ onPositionUpdate, onRepairStart, onRepairComplete }) {
 
   useFrame((_, dt) => {
     if (!ready) return;
+
     const base = 2.0;
     const speed = base * dt;
     tmpDir.set(0, 0, 0);
@@ -229,13 +234,21 @@ function Stage2Inner({ onPositionUpdate, onRepairStart, onRepairComplete }) {
       player.current.y,
       player.current.z + moveZ
     );
-    let y = player.current.y;
+
+    const r = hydro.step(dt, forward, right);
+    let y = r.y;
     if (y < minY) {
       y = minY;
+      hydro.setY(y);
+      hydro.setVY(0);
     }
     if (y > ceilY.current) {
       y = ceilY.current;
+      hydro.setY(y);
+      hydro.setVY(0);
     }
+    tmpNext.y = y;
+
     const min = worldBox.current.min.clone().addScalar(pad);
     const max = worldBox.current.max.clone().addScalar(-pad);
     tmpNext.x = THREE.MathUtils.clamp(tmpNext.x, min.x, max.x);
@@ -314,7 +327,7 @@ export default function Stage2() {
     <div className="stage2-canvas">
       {!locked && (
         <div className="lock-hint" onClick={() => ctrl.current?.lock()}>
-          클릭해서 조작 시작 (WASD, 마우스로 시점)
+          클릭해서 조작 시작 (WASD, Space, Shift, 마우스로 시점)
         </div>
       )}
 
@@ -341,6 +354,8 @@ export default function Stage2() {
           <div className="controls-info">
             <div>WASD: 이동</div>
             <div>마우스: 시점 조작</div>
+            <div>Space: 위로 이동</div>
+            <div>Shift: 아래로 이동</div>
             <div>R키: 수리 시작</div>
           </div>
         </div>
