@@ -1,0 +1,106 @@
+:root {
+  --bg: #0b0d12;      /* 전체 앱 기본 배경색(짙은 남청색) */
+  --fg: #f2f5ff;      /* 기본 전경(텍스트) 색 */
+  --muted: #9aa3b2;   /* 보조 텍스트 색(덜 강조) */
+  --accent: #78a6ff;  /* 포인트 색(버튼 등) */
+}
+
+
+.start-screen {
+  position: relative;
+  height: 100vh;
+  width: 100vw;
+  background-image: url("/start.png"); /* 1. 배경 이미지 */
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #000;
+}
+
+/* 중앙의 제목 */
+.title {
+  font-size: 2rem;
+  margin-bottom: 10px;
+}
+
+/* 버튼 그룹 */
+.stage-buttons {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  background: rgba(0,0,0,.35);
+  padding: 4px 8px;
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+  z-index: 300;
+}
+
+.stage-btn {
+  margin-right: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid #ccc;
+  cursor: pointer;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.stage-btn:hover {
+  background: rgba(255, 255, 255, 1);
+}
+
+.stage-btn.active {
+  background: #eee;
+}
+
+/* 중앙의 Start 버튼 */
+.start-btn {
+  padding: 12px 24px;
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #222;
+  background: var(--accent) ;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.start-btn:hover {
+  transform: scale(1.05);
+  background: #f0f0f0;
+}
+
+/* 좌측 하단 NASA 사행시 */
+.acrostic {
+  position: absolute;
+  bottom: 20px;
+  left: 30px;
+  text-align: left;
+  line-height: 1.4;
+  color: #fff;
+  font-family: "Arial", sans-serif;
+}
+
+.acrostic b {
+  font-weight: 800;
+  font-size: 1.3rem; /* 3. 맨 앞 문자 강조 */
+  color: #fff;
+}
+
+/* 우측 하단 로고 */
+.logo {
+  position: absolute;
+  bottom: 20px;
+  right: 30px;
+  width: 80px; /* 로고 크기 조절 가능 */
+  opacity: 0.9;
+}
