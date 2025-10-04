@@ -1,0 +1,24 @@
+.fullscreen-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.stage-panel {
+  position: fixed;
+  top: 72px;
+  right: 16px;
+  width: 360px;
+  max-height: 80vh;
+  background: linear-gradient(180deg, rgba(9,18,32,0.92), rgba(9,18,32,0.78));
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 14px;
+  padding: 16px;
+  color: #e8eef9;
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+}
