@@ -78,7 +78,11 @@ function Stage2Inner({ onPositionUpdate, onRepairStart, onRepairComplete }) {
       const isMagenta =
         c && Math.abs(c.r - 1) + Math.abs(c.g - 0) + Math.abs(c.b - 1) < 0.4;
 
-      if (name.includes("collider") || name.includes("collision") || isMagenta) {
+      if (
+        name.includes("collider") ||
+        name.includes("collision") ||
+        isMagenta
+      ) {
         o.visible = false;
       }
 
@@ -264,6 +268,14 @@ export default function Stage2() {
       <div className="quest-panel">
         <h3>Stage 2 — 외벽 수리 훈련</h3>
         <div className="sub">{getStageTitle()}</div>
+
+        <div className="quest-card purpose-card">
+          <div className="quest-card-title">훈련 목적</div>
+          <div className="purpose-info">
+            <div>우주에서의 중성부력 환경을 체험하고</div>
+            <div>우주선 외벽 수리 기술을 습득합니다.</div>
+          </div>
+        </div>
 
         <div className="quest-card hint-card">
           <div>수리 위치로 접근하세요</div>
