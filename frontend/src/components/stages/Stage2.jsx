@@ -117,6 +117,11 @@ export default function Stage2() {
           클릭해서 조작 시작 (WASD, Shift, 마우스로 시점)
         </div>
       )}
+
+      <div className="quest-panel">
+        {/* 설명창 */}
+      </div>
+
       <Canvas camera={{ position: [8, 2, 8], fov: 60 }}>
         <ambientLight intensity={0.7} />
         <directionalLight position={[8, 12, 6]} intensity={1.1} />
