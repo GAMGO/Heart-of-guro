@@ -1,14 +1,15 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { PointerLockControls, Environment, useGLTF } from "@react-three/drei";
+import { PointerLockControls, Environment, useGLTF, useAnimations } from "@react-three/drei";
 import * as THREE from "three";
 import "./Stage2.css";
 
 useGLTF.preload("/pool.glb");
-useGLTF.preload("/drill.glb");
 
 function useKeys() {
-  const keys = useRef({ w: false, a: false, s: false, d: false, shift: false });
+  const keys = useRef({ w: false, a: false, s: false, d: false, shift: false, r: false });
+  const prevKeys = useRef({ r: false });
+
   useEffect(() => {
     const down = (e) => {
       switch (e.code) {
@@ -26,6 +27,10 @@ function useKeys() {
           break;
         case "KeyD":
           keys.current.d = true;
+          e.preventDefault();
+          break;
+        case "KeyR":
+          keys.current.r = true;
           e.preventDefault();
           break;
         case "ShiftLeft":
@@ -50,6 +55,9 @@ function useKeys() {
         case "KeyD":
           keys.current.d = false;
           break;
+        case "KeyR":
+          keys.current.r = false;
+          break;
         case "ShiftLeft":
         case "ShiftRight":
           keys.current.shift = false;
@@ -65,17 +73,20 @@ function useKeys() {
       window.removeEventListener("keyup", up);
     };
   }, []);
-  return keys;
+
+  const isRPressed = keys.current.r && !prevKeys.current.r;
+  prevKeys.current.r = keys.current.r;
+  return { keys, isRPressed };
 }
 
-function Stage2Inner({ onPositionUpdate }) {
+function Stage2Inner({ onPositionUpdate, onRepairStart }) {
   const { camera } = useThree();
-  const { scene: pool } = useGLTF("/pool.glb");
-  const { scene: drill } = useGLTF("/drill.glb");
+  const { scene: pool, animations } = useGLTF("/pool.glb");
+  const { actions, mixer } = useAnimations(animations, pool);
   const [ready, setReady] = useState(false);
   const worldBox = useRef(new THREE.Box3());
   const player = useRef(new THREE.Vector3());
-  const keys = useKeys();
+  const { keys, isRPressed } = useKeys();
   const tmpDir = useMemo(() => new THREE.Vector3(), []);
   const tmpNext = useMemo(() => new THREE.Vector3(), []);
   const forward = useMemo(() => new THREE.Vector3(), []);
@@ -86,15 +97,22 @@ function Stage2Inner({ onPositionUpdate }) {
   const ceilY = useRef(12);
 
   useEffect(() => {
+    if (isRPressed) {
+      onRepairStart();
+      if (actions.fix) {
+        actions.fix.reset().play();
+      }
+    }
+  }, [isRPressed, actions, onRepairStart]);
+
+  useEffect(() => {
     pool.updateMatrixWorld(true);
     pool.traverse((o) => {
       if (!o.isMesh) return;
       const name = (o.name || "").toLowerCase();
       const c = o.material?.color;
-      const isMagenta =
-        c && Math.abs(c.r - 1) + Math.abs(c.g - 0) + Math.abs(c.b - 1) < 0.4;
-      if (name.includes("collider") || name.includes("collision") || isMagenta)
-        o.visible = false;
+      const isMagenta = c && Math.abs(c.r - 1) + Math.abs(c.g - 0) + Math.abs(c.b - 1) < 0.4;
+      if (name.includes("collider") || name.includes("collision") || isMagenta) o.visible = false;
     });
     worldBox.current.setFromObject(pool);
     const center = new THREE.Vector3();
@@ -122,18 +140,10 @@ function Stage2Inner({ onPositionUpdate }) {
     right.copy(up).cross(forward).normalize();
     const moveX = right.x * tmpDir.x * speed + forward.x * tmpDir.z * speed;
     const moveZ = right.z * tmpDir.x * speed + forward.z * tmpDir.z * speed;
-    tmpNext.set(
-      player.current.x + moveX,
-      player.current.y,
-      player.current.z + moveZ
-    );
+    tmpNext.set(player.current.x + moveX, player.current.y, player.current.z + moveZ);
     let y = player.current.y;
-    if (y < minY) {
-      y = minY;
-    }
-    if (y > ceilY.current) {
-      y = ceilY.current;
-    }
+    if (y < minY) { y = minY; }
+    if (y > ceilY.current) { y = ceilY.current; }
     const min = worldBox.current.min.clone().addScalar(pad);
     const max = worldBox.current.max.clone().addScalar(-pad);
     tmpNext.x = THREE.MathUtils.clamp(tmpNext.x, min.x, max.x);
@@ -143,22 +153,12 @@ function Stage2Inner({ onPositionUpdate }) {
     onPositionUpdate(player.current);
   });
 
-  return (
-    <group>
-      <primitive object={pool} />
-      <primitive 
-        object={drill} 
-        position={[-1.14, 1.75, 13.97]} 
-        scale={[1, 1, 1]}
-      />
-    </group>
-  );
+  return <primitive object={pool} />;
 }
 
 export default function Stage2() {
   const [locked, setLocked] = useState(false);
   const ctrl = useRef(null);
-
   const [position, setPosition] = useState({ x: 0, y: 0, z: 0 });
 
   const handlePositionUpdate = (newPosition) => {
@@ -167,6 +167,10 @@ export default function Stage2() {
       y: newPosition.y.toFixed(2),
       z: newPosition.z.toFixed(2),
     });
+  };
+
+  const handleRepairStart = () => {
+    console.log("수리 시작됨!");
   };
 
   return (
@@ -199,7 +203,10 @@ export default function Stage2() {
         <ambientLight intensity={0.7} />
         <directionalLight position={[8, 12, 6]} intensity={1.1} />
         <Suspense fallback={null}>
-          <Stage2Inner onPositionUpdate={handlePositionUpdate} />
+          <Stage2Inner
+            onPositionUpdate={handlePositionUpdate}
+            onRepairStart={handleRepairStart}
+          />
           <Environment preset="warehouse" />
         </Suspense>
         <PointerLockControls
