@@ -1,49 +1,62 @@
 :root {
-  --bg: #0b0d12;      /* 전체 앱 기본 배경색(짙은 남청색) */
-  --fg: #f2f5ff;      /* 기본 전경(텍스트) 색 */
-  --muted: #9aa3b2;   /* 보조 텍스트 색(덜 강조) */
-  --accent: #78a6ff;  /* 포인트 색(버튼 등) */
+  --bg: #0b0d12;
+  --fg: #f2f5ff;
+  --muted: #9aa3b2;
+  --accent: #78a6ff;
 }
 
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  overflow: hidden;
+}
 
 .start-screen {
+  position: fixed;
+  inset: 0;
   width: 100vw;
   height: 100dvh;
   background: url("/start.png") center/cover no-repeat;
   box-sizing: border-box;
-  position: relative;
   display: flex;
   justify-content: center;
-  align-items: flex-end;
+  align-items: center;
   font-family: "Audiowide", sans-serif;
-  overflow: hidden; /* 의도치 않은 오버레이 방지 */
 }
 
-/* 중앙의 Start 버튼 */
 .start-btn {
+  position: absolute;
+  left: 50%;
+  bottom: 80px;
+  transform: translateX(-50%);
   padding: 12px 28px;
   font-size: 1.2rem;
   font-weight: bold;
   color: #222;
-  background: var(--accent) ;
+  background: var(--accent);
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.3s ease;
-  margin-bottom: 80px;
+  transition: transform 0.2s ease, background 0.2s ease;
 }
 
 .start-btn:hover {
-  transform: scale(1.02);
+  transform: translateX(-50%) scale(1.02);
   background: #5f92f0;
 }
 
-/* 좌측 하단 NASA 사행시 */
 .acrostic {
   position: absolute;
   left: 50px;
+  bottom: 40px;
   text-align: left;
-  line-height: 0.4;
+  line-height: 0.9;
   color: #fff;
   font-family: "Arial", sans-serif;
   font-size: 4rem;
@@ -51,15 +64,14 @@
 
 .acrostic b {
   font-family: "Arial", sans-serif;
-  font-size: 7rem; /* 3. 맨 앞 문자 강조 */
+  font-size: 7rem;
   color: #fff;
 }
 
-/* 우측 하단 로고 */
 .logo {
   position: absolute;
   right: 50px;
-  width: 100px; /* 로고 크기 조절 가능 */
+  bottom: 30px;
+  width: 100px;
   opacity: 1;
-  margin-bottom: 30px;
 }

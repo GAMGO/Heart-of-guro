@@ -125,15 +125,13 @@ function Stage3Inner({ setWaterUI, onPositionUpdate }) {
     poolRef.current = s
     s.updateMatrixWorld(true)
     const colliders = []
-    const isMagenta = (c) => c && Math.abs(c.r - 1) < 0.12 && c.g < 0.12 && Math.abs(c.b - 1) < 0.12
     s.traverse((o) => {
       if (!o.isMesh) return
       const n = (o.name || "").toLowerCase()
       const c = o.material?.color
-      const isPink = isMagenta(c)
-      const isNamedPink = n.includes("pink") || n.includes("magenta")
-      const isSpaceshipPink = n.includes("spaceship") && isPink
-      if (isPink || isNamedPink || isSpaceshipPink) {
+      const m = c && Math.abs(c.r - 1) + Math.abs(c.g - 0) + Math.abs(c.b - 1) < 0.4
+      const isCollider = n.includes("collider") || n.includes("collision") || m
+      if (isCollider) {
         if (o.geometry.isBufferGeometry) {
           colliders.push({ geometry: o.geometry, matrix: o.matrixWorld.clone() })
         }
