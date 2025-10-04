@@ -5,6 +5,7 @@ import * as THREE from "three";
 import "./Stage2.css";
 
 useGLTF.preload("/pool.glb");
+useGLTF.preload("/drill.glb");
 
 function useKeys() {
   const keys = useRef({ w: false, a: false, s: false, d: false, shift: false });
@@ -70,6 +71,7 @@ function useKeys() {
 function Stage2Inner({ onPositionUpdate }) {
   const { camera } = useThree();
   const { scene: pool } = useGLTF("/pool.glb");
+  const { scene: drill } = useGLTF("/drill.glb");
   const [ready, setReady] = useState(false);
   const worldBox = useRef(new THREE.Box3());
   const player = useRef(new THREE.Vector3());
@@ -141,7 +143,16 @@ function Stage2Inner({ onPositionUpdate }) {
     onPositionUpdate(player.current);
   });
 
-  return <primitive object={pool} />;
+  return (
+    <group>
+      <primitive object={pool} />
+      <primitive 
+        object={drill} 
+        position={[-1.14, 1.75, 13.97]} 
+        scale={[1, 1, 1]}
+      />
+    </group>
+  );
 }
 
 export default function Stage2() {
