@@ -15,14 +15,41 @@ function expandBox(box, r, hh) {
 function inside(p, b) {
   return p.x > b.min.x && p.x < b.max.x && p.y > b.min.y && p.y < b.max.y && p.z > b.min.z && p.z < b.max.z;
 }
-function collides(centerPos, boxes, radius, halfH) {
-  for (let i = 0; i < boxes.length; i++) if (inside(centerPos, expandBox(boxes[i], radius, halfH))) return true;
-  return false;
-}
 function clampXZ(p, world, r) {
   p.x = Math.min(Math.max(p.x, world.minX + r), world.maxX - r);
   p.z = Math.min(Math.max(p.z, world.minZ + r), world.maxZ - r);
   return p;
+}
+function resolvePenetration(center, boxes, radius, halfH, maxIters = 6) {
+  let pos = center.clone();
+  const eps = 1e-4;
+  for (let k = 0; k < maxIters; k++) {
+    let pushed = false;
+    for (let i = 0; i < boxes.length; i++) {
+      const e = expandBox(boxes[i], radius, halfH);
+      if (!inside(pos, e)) continue;
+      const dxMin = e.min.x - pos.x;
+      const dxMax = e.max.x - pos.x;
+      const dyMin = e.min.y - pos.y;
+      const dyMax = e.max.y - pos.y;
+      const dzMin = e.min.z - pos.z;
+      const dzMax = e.max.z - pos.z;
+      const cand = [
+        { axis: "x", v: dxMin },
+        { axis: "x", v: dxMax },
+        { axis: "y", v: dyMin },
+        { axis: "y", v: dyMax },
+        { axis: "z", v: dzMin },
+        { axis: "z", v: dzMax },
+      ].sort((a, b) => Math.abs(a.v) - Math.abs(b.v))[0];
+      if (cand.axis === "x") pos.x += cand.v + Math.sign(cand.v) * eps;
+      if (cand.axis === "y") pos.y += cand.v + Math.sign(cand.v) * eps;
+      if (cand.axis === "z") pos.z += cand.v + Math.sign(cand.v) * eps;
+      pushed = true;
+    }
+    if (!pushed) break;
+  }
+  return pos;
 }
 
 export default function Astronaut({
@@ -47,11 +74,14 @@ export default function Astronaut({
   const halfH = height * 0.5;
 
   useEffect(() => {
-    if (rig.current) rig.current.position.set(spawn.x, spawn.y - headOffset, spawn.z);
+    if (rig.current) {
+      const c = new THREE.Vector3(spawn.x, spawn.y - headOffset, spawn.z);
+      rig.current.position.copy(resolvePenetration(c, colliders, radius, halfH));
+    }
     camera.position.set(0, headOffset, 0);
     if (rig.current) rig.current.add(camera);
     ready.current = true;
-  }, [camera, spawn, headOffset]);
+  }, [camera, spawn, headOffset, colliders, radius, halfH]);
 
   useEffect(() => {
     const kd = (e) => {
@@ -61,18 +91,28 @@ export default function Astronaut({
       if (["Space", "ShiftLeft", "ShiftRight"].includes(e.code)) e.preventDefault();
     };
     const ku = (e) => (keys.current[e.code] = false);
-    const dom = gl.domElement;
-    dom.tabIndex = 0;
-    dom.focus();
-    dom.addEventListener("keydown", kd, { passive: false });
-    dom.addEventListener("keyup", ku, { passive: false });
-    window.addEventListener("keydown", kd, { passive: false });
-    window.addEventListener("keyup", ku, { passive: false });
+    const clearOnBlur = () => { keys.current = {}; };
+    const focusCanvas = () => { if (gl?.domElement) gl.domElement.focus(); };
+    if (gl?.domElement) {
+      gl.domElement.setAttribute("tabindex", "0");
+      gl.domElement.addEventListener("pointerdown", focusCanvas);
+      gl.domElement.addEventListener("keydown", kd, { passive: false });
+      gl.domElement.addEventListener("keyup", ku, { passive: false });
+    }
+    document.addEventListener("keydown", kd, { passive: false });
+    document.addEventListener("keyup", ku, { passive: false });
+    window.addEventListener("blur", clearOnBlur);
+    document.addEventListener("visibilitychange", () => { if (document.hidden) clearOnBlur(); });
     return () => {
-      dom.removeEventListener("keydown", kd);
-      dom.removeEventListener("keyup", ku);
-      window.removeEventListener("keydown", kd);
-      window.removeEventListener("keyup", ku);
+      if (gl?.domElement) {
+        gl.domElement.removeEventListener("pointerdown", focusCanvas);
+        gl.domElement.removeEventListener("keydown", kd);
+        gl.domElement.removeEventListener("keyup", ku);
+      }
+      document.removeEventListener("keydown", kd);
+      document.removeEventListener("keyup", ku);
+      window.removeEventListener("blur", clearOnBlur);
+      document.removeEventListener("visibilitychange", () => {});
     };
   }, [gl, setBallast]);
 
@@ -86,27 +126,23 @@ export default function Astronaut({
 
     const d = stepXZ({ dt, camera, moveKeys: keys.current, effMass: Math.max(100, res.totalMass ?? 180) });
 
-    const cur = rig.current.position.clone();
-    const next = cur.clone();
+    let next = rig.current.position.clone();
 
     if (Number.isFinite(d.x)) {
-      const tryX = cur.clone();
-      tryX.x += d.x;
-      clampXZ(tryX, bounds, radius);
-      if (!collides(tryX, colliders, radius, halfH)) next.x = tryX.x;
+      next.x += d.x;
+      clampXZ(next, bounds, radius);
+      next = resolvePenetration(next, colliders, radius, halfH);
     }
     if (Number.isFinite(d.y)) {
-      const tryZ = next.clone();
-      tryZ.z += d.y;
-      clampXZ(tryZ, bounds, radius);
-      if (!collides(tryZ, colliders, radius, halfH)) next.z = tryZ.z;
+      next.z += d.y;
+      clampXZ(next, bounds, radius);
+      next = resolvePenetration(next, colliders, radius, halfH);
     }
 
     const headTarget = Math.min(Math.max(headYRef.current, bounds.minY), bounds.maxY);
     const centerY = headTarget - headOffset;
-    const tryY = next.clone();
-    tryY.y = centerY;
-    if (!collides(tryY, colliders, radius, halfH)) next.y = centerY;
+    next.y = centerY;
+    next = resolvePenetration(next, colliders, radius, halfH);
 
     rig.current.position.copy(next);
     posRef.current = { x: next.x, y: next.y + headOffset, z: next.z };
@@ -121,4 +157,3 @@ export default function Astronaut({
     </group>
   );
 }
-//
