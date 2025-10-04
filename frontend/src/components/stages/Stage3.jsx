@@ -1,4 +1,3 @@
-// src/components/stages/Stage3.jsx
 import React, { Suspense, useEffect, useRef, useState } from "react"
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import { PointerLockControls, Environment, useGLTF } from "@react-three/drei"
@@ -20,8 +19,8 @@ function useEdgeE() {
   useEffect(() => {
     const d = (e) => { if (e.code === "KeyE") eRef.current = true }
     const u = (e) => { if (e.code === "KeyE") eRef.current = false }
-    window.addEventListener("keydown", d, { passive:false })
-    window.addEventListener("keyup", u, { passive:false })
+    window.addEventListener("keydown", d)
+    window.addEventListener("keyup", u)
     return () => { window.removeEventListener("keydown", d); window.removeEventListener("keyup", u) }
   }, [])
   return () => {
@@ -34,13 +33,14 @@ function useEdgeE() {
 const customColliderGeometry = new THREE.BoxGeometry(4, 4, 0.5)
 const customColliderMatrix = new THREE.Matrix4().makeTranslation(-5.489, 0, -8.0)
 
-function Stage3Inner({ onPositionUpdate }) {
+function Stage3Inner({ setWaterUI, onPositionUpdate }) {
   const { camera, gl, scene } = useThree()
   const gltf = useGLTF("/pool.glb")
   const poolRef = useRef()
   const mixerRef = useRef(null)
   const actionsRef = useRef({})
   const [ready, setReady] = useState(false)
+  const [colliderData, setColliderData] = useState([])
 
   const worldBox = useRef(new THREE.Box3())
   const ceilY = useRef(12)
@@ -53,6 +53,7 @@ function Stage3Inner({ onPositionUpdate }) {
       startY: SPAWN_POS.y,
       startZ: SPAWN_POS.z,
       minY: 1.75,
+      colliders: colliderData,
     })
   )
 
@@ -76,12 +77,12 @@ function Stage3Inner({ onPositionUpdate }) {
       map[key] = a
     }
     actionsRef.current = map
-    const pick = (...names) => names.map((n)=>map[n]).find(Boolean) || null
+    const getFirst = (...names) => names.map((n) => map[n]).find(Boolean) || null
     doorKeysRef.current = {
-      open: pick("open","dooropen"),
-      opened: pick("opened","dooropened"),
-      close: pick("close","doorclose"),
-      closed: pick("closed","doorclosed"),
+      open: getFirst("open", "dooropen"),
+      opened: getFirst("opened", "dooropened"),
+      close: getFirst("close", "doorclose"),
+      closed: getFirst("closed", "doorclosed"),
     }
   }
 
@@ -119,6 +120,23 @@ function Stage3Inner({ onPositionUpdate }) {
     const s = gltf.scene
     poolRef.current = s
     s.updateMatrixWorld(true)
+    const colliders = []
+    s.traverse((o) => {
+      if (!o.isMesh) return
+      const n = (o.name || "").toLowerCase()
+      const c = o.material?.color
+      const m = c && Math.abs(c.r - 1) + Math.abs(c.g - 0) + Math.abs(c.b - 1) < 0.4
+      const isCollider = n.includes("collider") || n.includes("collision") || m
+      if (isCollider) {
+        o.visible = false
+        if (o.geometry.isBufferGeometry) {
+          colliders.push({ geometry: o.geometry, matrix: o.matrixWorld.clone() })
+        }
+      }
+      if (n.includes("nasa") || n.includes("pgt")) o.visible = false
+    })
+    const combined = [...colliders, { geometry: customColliderGeometry, matrix: customColliderMatrix }]
+    setColliderData(combined)
     worldBox.current.setFromObject(s)
     ceilY.current = worldBox.current.max.y - pad
     camera.position.copy(SPAWN_POS)
@@ -136,8 +154,8 @@ function Stage3Inner({ onPositionUpdate }) {
     sim.setPosition(SPAWN_POS.x, SPAWN_POS.y, SPAWN_POS.z)
     const kd = (e) => sim.onKeyDown(e)
     const ku = (e) => sim.onKeyUp(e)
-    window.addEventListener("keydown", kd, { passive:false })
-    window.addEventListener("keyup", ku, { passive:false })
+    window.addEventListener("keydown", kd, { passive: false })
+    window.addEventListener("keyup", ku, { passive: false })
     setReady(true)
     return () => {
       dom.removeEventListener("click", lock)
@@ -196,12 +214,13 @@ function Stage3Inner({ onPositionUpdate }) {
 }
 
 export default function Stage3() {
+  const [inWater, setInWater] = useState(false)
   const [locked, setLocked] = useState(false)
   return (
     <div style={{ position: "fixed", inset: 0, overflow: "hidden", background: "#000" }}>
       {!locked && (
         <div className="lock-hint" onClick={() => document.querySelector("canvas")?.dispatchEvent(new MouseEvent("click", { bubbles: true }))}>
-          클릭해서 조작 시작 (WASD, Shift, Space, E)
+          클릭해서 조작 시작 (WASD, Shift)
         </div>
       )}
       <div className="quest-panel">
@@ -215,9 +234,13 @@ export default function Stage3() {
           <div id="coord" className="status-info"></div>
         </div>
       </div>
+      {inWater && (
+        <div style={{ position:"absolute", inset:0, pointerEvents:"none", background:"radial-gradient(ellipse at 50% 20%, rgba(150,220,255,0.15) 0%, rgba(100,180,255,0.25) 60%, rgba(60,140,200,0.35) 100%)", mixBlendMode:"screen", transition:"opacity 180ms ease", opacity:1 }} />
+      )}
       <Canvas camera={{ position: [SPAWN_POS.x, SPAWN_POS.y, SPAWN_POS.z], fov: 60 }}>
         <Suspense fallback={null}>
           <Stage3Inner
+            setWaterUI={setInWater}
             onPositionUpdate={(v) => {
               const el = document.getElementById("coord")
               if (el) el.innerHTML = `<div>X: ${v.x.toFixed(2)}</div><div>Y: ${v.y.toFixed(2)}</div><div>Z: ${v.z.toFixed(2)}</div>`
