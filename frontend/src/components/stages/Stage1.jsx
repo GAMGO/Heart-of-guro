@@ -1,115 +1,79 @@
-import { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useGLTF, PointerLockControls } from "@react-three/drei";
 import * as THREE from "three";
 
-// 풀 장면
+import useHydroMovementReal from "../../physics/useHydroMovementReal";
+import useVerticalHydroReal from "../../physics/useVerticalHydroReal";
+import { HYDRO_CONFIG } from "../../physics/hydroConfig";
+
+// ---------- Pool ----------
 function Pool() {
-  const { scene } = useGLTF("./pool.glb");
+  const { scene } = useGLTF("/pool.glb");
   return <primitive object={scene} scale={1} />;
 }
 
-function SimController({ pos, floats, weights, target, onNeutral }) {
-  const { camera } = useThree();
+// ---------- SimController ----------
+function SimController({ pos, weights, target }) {
+  const { camera, clock } = useThree();
+  const moveKeys = useRef({});
   const ref = useRef();
-  const vyRef = useRef(0);
-  const vxRef = useRef(0);
-  const vzRef = useRef(0);
-  const lastRef = useRef(performance.now());
-  const neutralTimer = useRef(0);
 
-  const keys = useRef({ w: false, a: false, s: false, d: false });
+  // ✅ 전역 키 입력
   useEffect(() => {
-    const down = (e) => {
-      if (e.code === "KeyW") keys.current.w = true;
-      if (e.code === "KeyS") keys.current.s = true;
-      if (e.code === "KeyA") keys.current.a = true;
-      if (e.code === "KeyD") keys.current.d = true;
+    const kd = (e) => {
+      moveKeys.current[e.code] = true;
+      if (["Space", "ShiftLeft", "ShiftRight"].includes(e.code))
+        e.preventDefault();
     };
-    const up = (e) => {
-      if (e.code === "KeyW") keys.current.w = false;
-      if (e.code === "KeyS") keys.current.s = false;
-      if (e.code === "KeyA") keys.current.a = false;
-      if (e.code === "KeyD") keys.current.d = false;
-    };
-    document.addEventListener("keydown", down);
-    document.addEventListener("keyup", up);
+    const ku = (e) => (moveKeys.current[e.code] = false);
+    window.addEventListener("keydown", kd, { passive: false });
+    window.addEventListener("keyup", ku);
     return () => {
-      document.removeEventListener("keydown", down);
-      document.removeEventListener("keyup", up);
+      window.removeEventListener("keydown", kd);
+      window.removeEventListener("keyup", ku);
     };
   }, []);
 
-  useFrame(() => {
-    const now = performance.now();
-    const dt = (now - lastRef.current) / 1000;
-    lastRef.current = now;
+  // ✅ 수평 / 수직 이동 훅
+  const { step: stepXZ } = useHydroMovementReal(HYDRO_CONFIG);
+  const { stepY } = useVerticalHydroReal(HYDRO_CONFIG);
 
-    // ---- 상하 힘 계산 (부표=추 균형) ----
-    const unitPower = 20;
-    const forceY = floats * unitPower - weights * unitPower;
-    const accY = forceY / 80;
-    vyRef.current += accY * dt;
+  const vyRef = useRef(0);
+  const yRef = useRef(pos.current.y);
 
-    // ---- WASD 이동 ----
-    const forward = new THREE.Vector3();
-    camera.getWorldDirection(forward);
-    forward.y = 0;
-    forward.normalize();
+  useFrame((_, dt) => {
+    const t = clock.getElapsedTime();
 
-    const right = new THREE.Vector3();
-    right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+    // 수직 이동
+    const res = stepY({
+      dt,
+      y: yRef.current,
+      vy: vyRef.current,
+      weightCount: weights,
+      bounds: { minY: 1.75, maxY: 12.0 },
+      speedXZ: 0,
+      t,
+    });
+    yRef.current = res.newY;
+    vyRef.current = res.newVy;
 
-    let inputX = 0,
-      inputZ = 0;
-    if (keys.current.w) {
-      inputX += forward.x;
-      inputZ += forward.z;
-    }
-    if (keys.current.s) {
-      inputX -= forward.x;
-      inputZ -= forward.z;
-    }
-    if (keys.current.d) {
-      inputX += right.x;
-      inputZ += right.z;
-    }
-    if (keys.current.a) {
-      inputX -= right.x;
-      inputZ -= right.z;
-    }
+    // 수평 이동
+    const dXZ = stepXZ({
+      dt,
+      camera,
+      moveKeys: moveKeys.current,
+      effMass: Math.max(100, (res.totalMass ?? 180) * 0.7),
+      bounds: null,
+    });
 
-    const speed = 2;
-    vxRef.current += inputX * speed * dt;
-    vzRef.current += inputZ * speed * dt;
+    if (isNaN(dXZ.x) || isNaN(dXZ.y)) return; // 안전장치
+    camera.position.x += dXZ.x;
+    camera.position.z += dXZ.y;
+    camera.position.y = yRef.current;
 
-    vxRef.current *= 0.9;
-    vzRef.current *= 0.9;
-
-    // ---- 위치 업데이트 ----
-    pos.current.x += vxRef.current * dt;
-    pos.current.z += vzRef.current * dt;
-    pos.current.y += vyRef.current * dt;
-
-    if (pos.current.y < 1.75) {
-      pos.current.y = 1.75;
-      vyRef.current = 0;
-    }
-
-    const camY = Math.max(1.75, pos.current.y + 0.2);
-    camera.position.set(pos.current.x, camY, pos.current.z);
-
-    if (ref.current) {
-      ref.current.position.set(pos.current.x, pos.current.y, pos.current.z);
-    }
-
-    // ---- 중성부력 체크 ----
-    if (floats === weights && Math.abs(pos.current.y - target) < 0.1) {
-      neutralTimer.current += dt;
-      if (neutralTimer.current >= 3) onNeutral();
-    } else {
-      neutralTimer.current = 0;
-    }
+    pos.current.set(camera.position.x, yRef.current, camera.position.z);
+    if (ref.current) ref.current.position.copy(camera.position);
   });
 
   return (
@@ -126,42 +90,52 @@ function SimController({ pos, floats, weights, target, onNeutral }) {
   );
 }
 
+// ---------- Stage1 ----------
 export default function Stage1() {
-  const pos = useRef({ x: 0, y: 1.75, z: 0 });
-  const [floats, setFloats] = useState(5); // 시작 = 5
-  const [weights, setWeights] = useState(5); // 시작 = 5 → 중성부력
+  const pos = useRef(new THREE.Vector3(0, 1.75, 0));
+  const [weights, setWeights] = useState(HYDRO_CONFIG.ballastKg);
   const [target] = useState(() => 1.8 + Math.random() * 1.5);
-  const [cleared, setCleared] = useState(false);
+  const [locked, setLocked] = useState(false);
 
+  // 🎛️ E/R 부력 조절
   useEffect(() => {
     const down = (e) => {
-      if (e.code === "Space" && floats < 10) {
-        setFloats((f) => f + 1);
-        setWeights((w) => Math.max(0, w - 1));
-      }
-      if (e.code === "ShiftLeft" && weights < 10) {
-        setWeights((w) => w + 1);
-        setFloats((f) => Math.max(0, f - 1));
-      }
+      if (e.code === "KeyE") setWeights((w) => Math.max(0, w - 1));
+      if (e.code === "KeyR") setWeights((w) => w + 1);
     };
-    document.addEventListener("keydown", down);
-    return () => document.removeEventListener("keydown", down);
-  }, [floats, weights]);
+    window.addEventListener("keydown", down);
+    return () => window.removeEventListener("keydown", down);
+  }, []);
 
   return (
     <div style={{ width: "100vw", height: "100vh" }}>
+      {!locked && (
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            background: "rgba(0,0,0,0.6)",
+            color: "white",
+            padding: "12px 18px",
+            borderRadius: "8px",
+            fontFamily: "sans-serif",
+          }}
+        >
+          클릭해서 조작 시작 (WASD 이동, Space/Shift 상승·하강, E/R 부력 조정)
+        </div>
+      )}
+
       <Canvas camera={{ position: [0, 2, 6], fov: 75 }}>
         <ambientLight intensity={0.6} />
         <directionalLight position={[5, 5, 5]} intensity={1.2} />
         <Pool />
-        <SimController
-          pos={pos}
-          floats={floats}
-          weights={weights}
-          target={target}
-          onNeutral={() => setCleared(true)}
+        <SimController pos={pos} weights={weights} target={target} />
+        <PointerLockControls
+          onLock={() => setLocked(true)}
+          onUnlock={() => setLocked(false)}
         />
-        <PointerLockControls />
       </Canvas>
 
       {/* HUD */}
@@ -177,16 +151,17 @@ export default function Stage1() {
           fontFamily: "monospace",
         }}
       >
-        <p>🎮 Controls:</p>
-        <p>WASD → Swim horizontally</p>
-        <p>Space → Add Float (부표 ↑)</p>
-        <p>Shift → Add Weight (추 ↑)</p>
+        <p>🎮 Controls</p>
+        <p>WASD → 수영 / Space·Shift → 상승·하강</p>
+        <p>E → 추 제거 (↑ 부력)</p>
+        <p>R → 추 추가 (↓ 부력)</p>
         <hr />
-        <p>🟡 Floats: {floats}</p>
         <p>⚖️ Weights: {weights}</p>
         <p>📍 Y: {pos.current.y.toFixed(2)} m</p>
         <p>🎯 Target: {target.toFixed(2)} m</p>
-        {cleared && <h3>✅ Neutral Buoyancy Cleared!</h3>}
+        {Math.abs(pos.current.y - target) < 0.1 && (
+          <h3>✅ Neutral-ish depth!</h3>
+        )}
       </div>
     </div>
   );

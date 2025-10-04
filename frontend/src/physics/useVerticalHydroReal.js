@@ -1,91 +1,117 @@
-import { useMemo, useRef } from "react"
-import * as THREE from "three"
+export default function useVerticalHydroReal(config = {}) {
+  const C = {
+    rho: 998.2,
+    g: 9.81,
+    P_surface: 101325,
+    astronautMass: 78,
+    suitMass: 127,
+    equipmentMass: 6,
+    ballastStepKg: 1,
+    rigidVolume: 0.195,
+    bcGasLitersSurface: 25.0,
+    lungTidalLiters: 0.6,
+    lungReserveLiters: 2.0,
+    breathHz: 0.25,
+    breathVar: 0.05,
+    breathAmplitudeScaleNeutral: 1.0,
+    breathAmplitudeScaleMoving: 0.55,
+    Cd_vert: 1.0,
+    A_vert: 0.35,
+    Ca_vert: 0.18,
+    waterSurfaceY: 6.0,
+    metersPerWorldUnit: 1.0,
+    poolDepthMeters: 12.2,
+    minYPadding: 0.25,
+    maxYPadding: 0.25,
+    microCurrentN: 0.08,
+    floorNudge: 0.02,
 
-export default function useVerticalHydroReal(cfg) {
-  const C = useMemo(() => ({
-    mode: cfg.mode ?? "EMU_NBL",
-    rho: cfg.rho ?? 996.5,
-    g: cfg.g ?? 9.81,
-    astronautMass: cfg.astronautMass ?? 82.9,
-    suitMass: cfg.suitMass ?? 145,
-    equipmentMass: cfg.equipmentMass ?? 0,
-    ballastKg: cfg.ballastKg ?? 0,
-    ballastStepKg: cfg.ballastStepKg ?? 1,
-    rigidVolume: cfg.rigidVolume ?? ((cfg.astronautMass ?? 82.9) + (cfg.suitMass ?? 145)) / (cfg.rho ?? 996.5),
-    Cd: cfg.Cd ?? 1.0,
-    A: cfg.A ?? 0.35,
-    Ca: cfg.Ca ?? 0.18,
-    microBuoyancyLiters: cfg.microBuoyancyLiters ?? 0.4,
-    microHz: cfg.microHz ?? 0.06,
-    targetSpeed: cfg.targetSpeed ?? 1.5,
-    verticalSpeed: cfg.verticalSpeed ?? 1.25,
-    lerpXY: cfg.lerpXY ?? 8.0,
-    lerpY: cfg.lerpY ?? 16.0,
-    minY: cfg.minY ?? 1.75,
-  }), [cfg])
+    // 🔹 세밀한 중성 부력 조정 파라미터
+    neutralForceN: 1.5, // 중성 데드밴드 범위
+    neutralSpeedEPS: 0.02, // 중성일 때 속도 클램프 기준
+    neutralTrimN: 0.0, // 🔸 사용자 조정값 (+면 양성, -면 음성)
+  };
 
-  const s = useRef({
-    x: cfg.startX ?? 0,
-    y: cfg.startY ?? C.minY,
-    z: cfg.startZ ?? 0,
-    vx: 0,
-    vy: 0,
-    vz: 0,
-    t: 0,
-  })
+  Object.assign(C, config || {});
 
-  const keys = useRef({ w:false,a:false,s:false,d:false,space:false,shift:false })
+  function stepY({ dt, y, vy, weightCount, bounds, speedXZ = 0, t = 0 }) {
+    if (!Number.isFinite(dt) || dt <= 0) dt = 1 / 60;
 
-  const onKeyDown = (e) => {
-    if (e.code === "KeyW") keys.current.w = true
-    if (e.code === "KeyA") keys.current.a = true
-    if (e.code === "KeyS") keys.current.s = true
-    if (e.code === "KeyD") keys.current.d = true
-    if (e.code === "Space") { e.preventDefault(); keys.current.space = true }
-    if (e.code === "ShiftLeft" || e.code === "ShiftRight") { e.preventDefault(); keys.current.shift = true }
+    const surfaceY_world = C.waterSurfaceY ?? y + 5;
+    const depthWorld = Math.max(0, surfaceY_world - y);
+    const depthMeters = Math.min(
+      depthWorld * C.metersPerWorldUnit,
+      C.poolDepthMeters
+    );
+    const P = C.P_surface + C.rho * C.g * depthMeters;
+
+    const totalMass =
+      C.astronautMass +
+      C.suitMass +
+      C.equipmentMass +
+      Math.max(0, weightCount) * C.ballastStepKg;
+
+    const V_bc = (C.bcGasLitersSurface / 1000) * (C.P_surface / P);
+    const freq = C.breathHz * (1 + C.breathVar * (Math.sin(t * 0.13) - 0.5));
+    const ampScale =
+      speedXZ < 0.15
+        ? C.breathAmplitudeScaleNeutral
+        : C.breathAmplitudeScaleMoving;
+    const V_lung =
+      ((C.lungTidalLiters * 0.5 * (1 + Math.sin(2 * Math.PI * freq * t)) +
+        0.15 * C.lungReserveLiters * Math.random()) /
+        1000) *
+      ampScale *
+      (C.P_surface / P);
+
+    const V_displaced = C.rigidVolume + V_bc + V_lung;
+
+    const buoyancyN = C.rho * C.g * V_displaced;
+    const weightN = totalMass * C.g;
+
+    const addedMass = C.Ca_vert * C.rho * C.rigidVolume;
+    const m_eff_y = Math.max(1e-6, totalMass + addedMass);
+    const dragN = 0.5 * C.rho * C.Cd_vert * C.A_vert * Math.abs(vy) * vy;
+    const microN = C.microCurrentN * Math.sin(0.7 * t) * 0.2;
+
+    // 🔹 핵심: Trim을 포함한 실질 부력
+    const Fnet = buoyancyN - weightN - dragN + microN + C.neutralTrimN;
+
+    let newVy = vy + (Fnet / m_eff_y) * dt;
+
+    // 🔹 중성대역 내 속도 감쇠
+    if (
+      Math.abs(newVy) < C.neutralSpeedEPS &&
+      Math.abs(buoyancyN - weightN + C.neutralTrimN) < C.neutralForceN
+    ) {
+      newVy *= 0.3;
+    }
+
+    let newY = y + newVy * dt;
+
+    const minY = bounds?.minY ?? 1.75;
+    const maxY = bounds?.maxY ?? 12.0;
+
+    if (newY < minY) {
+      newY = minY;
+      newVy = 0;
+    }
+    if (newY > maxY) {
+      newY = maxY;
+      newVy = 0;
+    }
+
+    return {
+      newY,
+      newVy,
+      Fnet,
+      buoyancyN,
+      weightN,
+      totalMass,
+      depth: depthMeters,
+      P,
+    };
   }
 
-  const onKeyUp = (e) => {
-    if (e.code === "KeyW") keys.current.w = false
-    if (e.code === "KeyA") keys.current.a = false
-    if (e.code === "KeyS") keys.current.s = false
-    if (e.code === "KeyD") keys.current.d = false
-    if (e.code === "Space") { e.preventDefault(); keys.current.space = false }
-    if (e.code === "ShiftLeft" || e.code === "ShiftRight") { e.preventDefault(); keys.current.shift = false }
-  }
-
-  const api = useMemo(() => ({
-    get mode() { return C.mode },
-    get pos() { return { x: s.current.x, y: s.current.y, z: s.current.z } },
-    get vel() { return { vx: s.current.vx, vy: s.current.vy, vz: s.current.vz } },
-    setPosition(x, y, z) {
-      s.current.x = x ?? s.current.x
-      s.current.y = y ?? s.current.y
-      s.current.z = z ?? s.current.z
-    },
-    onKeyDown,
-    onKeyUp,
-    step(dt, forward = new THREE.Vector3(0, 0, -1), right = new THREE.Vector3(1, 0, 0)) {
-      let dvx = 0, dvz = 0
-      if (keys.current.w) { dvx += forward.x * C.targetSpeed; dvz += forward.z * C.targetSpeed }
-      if (keys.current.s) { dvx -= forward.x * C.targetSpeed; dvz -= forward.z * C.targetSpeed }
-      if (keys.current.d) { dvx -= right.x * C.targetSpeed; dvz -= right.z * C.targetSpeed }
-      if (keys.current.a) { dvx += right.x * C.targetSpeed; dvz += right.z * C.targetSpeed }
-      let dvy = 0
-      if (keys.current.space) dvy += C.verticalSpeed
-      if (keys.current.shift) dvy -= C.verticalSpeed
-      s.current.vx += (dvx - s.current.vx) * C.lerpXY * dt
-      s.current.vz += (dvz - s.current.vz) * C.lerpXY * dt
-      if (Math.sign(s.current.vy) !== Math.sign(dvy)) s.current.vy = dvy
-      else s.current.vy += (dvy - s.current.vy) * C.lerpY * dt
-      s.current.x += s.current.vx * dt
-      s.current.y += s.current.vy * dt
-      s.current.z += s.current.vz * dt
-      if (s.current.y < C.minY) { s.current.y = C.minY; if (s.current.vy < 0) s.current.vy = 0 }
-      s.current.t += dt
-      return { x:s.current.x, y:s.current.y, z:s.current.z, vx:s.current.vx, vy:s.current.vy, vz:s.current.vz }
-    },
-  }), [C])
-
-  return api
+  return { stepY, C };
 }

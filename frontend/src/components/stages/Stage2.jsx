@@ -7,287 +7,227 @@ import {
   useAnimations,
 } from "@react-three/drei";
 import * as THREE from "three";
+
+import useHydroMovementReal from "../../physics/useHydroMovementReal";
 import useVerticalHydroReal from "../../physics/useVerticalHydroReal";
-import { buildEmuNblConfig } from "../../physics/nasaPresets";
+import { HYDRO_CONFIG } from "../../physics/hydroConfig";
+
 import "./Stage2.css";
 
 useGLTF.preload("/pool.glb");
 
+/*────────────────────────────── R키 수리 감지 ──────────────────────────────*/
 function useRepairKeyOnly() {
   const [isRPressed, setIsRPressed] = useState(false);
-
   useEffect(() => {
-    const down = (e) => {
-      if (e.code === "KeyR") {
-        setIsRPressed(true);
-        e.preventDefault();
-      }
-    };
-    const up = (e) => {
-      if (e.code === "KeyR") {
-        setIsRPressed(false);
-      }
-    };
-    window.addEventListener("keydown", down, { passive: false });
-    window.addEventListener("keyup", up, { passive: true });
+    const down = (e) => e.code === "KeyR" && setIsRPressed(true);
+    const up = (e) => e.code === "KeyR" && setIsRPressed(false);
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
   }, []);
-
   return isRPressed;
 }
 
+/*────────────────────────────── Stage2Inner ──────────────────────────────*/
 function Stage2Inner({ onPositionUpdate, onRepairStart, onRepairComplete }) {
-  const { camera } = useThree();
+  const { camera, gl } = useThree();
   const { scene: pool, animations } = useGLTF("/pool.glb");
   const { actions, mixer } = useAnimations(animations, pool);
 
-  const [ready, setReady] = useState(false);
-  const [isRepairing, setIsRepairing] = useState(false);
-
+  const ready = useRef(false);
+  const player = useRef(new THREE.Vector3(0, 1.75, 0));
   const worldBox = useRef(new THREE.Box3());
-  const player = useRef(new THREE.Vector3());
-  const ceilY = useRef(12);
-  const pad = 0.25;
-  const minY = 1.75;
+  const moveKeys = useRef({});
+  const ballastRef = useRef(HYDRO_CONFIG.ballastKg);
+  const vyRef = useRef(0);
+  const yRef = useRef(1.75);
 
   const isRPressed = useRepairKeyOnly();
+  const [isRepairing, setIsRepairing] = useState(false);
 
-  const forward = useMemo(() => new THREE.Vector3(), []);
-  const right = useMemo(() => new THREE.Vector3(), []);
-  const up = useMemo(() => new THREE.Vector3(0, 1, 0), []);
-
+  // ✅ 링 목표
   const RING_POS = useMemo(() => new THREE.Vector3(-1.59, 0.0, 14.89), []);
-  const RING_COLOR = "#ff3030";
   const REPAIR_DISTANCE = 2.0;
 
-  const hydro = useVerticalHydroReal(buildEmuNblConfig({ ballastKg: 5 }));
+  // ✅ 물리 시스템
+  const { step: stepXZ } = useHydroMovementReal(HYDRO_CONFIG);
+  const { stepY } = useVerticalHydroReal(HYDRO_CONFIG);
 
-  const pgtRef = useRef(null);
-  const boltRefs = useRef([]);
-
+  /*──────────────────────────── 초기화 ──────────────────────────────*/
   useEffect(() => {
     pool.updateMatrixWorld(true);
-
-    pool.traverse((o) => {
-      if (!o.isMesh && !o.isGroup) return;
-      const name = (o.name || "").toLowerCase();
-      const c = o.material?.color;
-      const isMagenta =
-        c && Math.abs(c.r - 1) + Math.abs(c.g - 0) + Math.abs(c.b - 1) < 0.4;
-
-      if (name.includes("collider") || name.includes("collision") || isMagenta) {
-        o.visible = false;
-      }
-
-      if (o.name === "PGT") {
-        pgtRef.current = o;
-        o.visible = false;
-        o.children.forEach((child) => {
-          child.visible = false;
-        });
-      }
-
-      if (
-        o.name === "nasa" ||
-        o.name === "nasa001" ||
-        o.name === "nasa002" ||
-        o.name === "nasa003"
-      ) {
-        boltRefs.current.push(o);
-        o.visible = false;
-      }
-    });
-
     worldBox.current.setFromObject(pool);
     const center = new THREE.Vector3();
     worldBox.current.getCenter(center);
-    ceilY.current = worldBox.current.max.y - pad;
-
-    player.current.set(center.x, minY, center.z);
+    player.current.copy(center);
+    player.current.y = 1.75;
     camera.position.copy(player.current);
-
-    setReady(true);
+    ready.current = true;
   }, [pool, camera]);
 
+  /*──────────────────────────── 키 입력 ──────────────────────────────*/
   useEffect(() => {
-    if (pgtRef.current) {
-      pgtRef.current.visible = isRepairing;
-      pgtRef.current.children.forEach((child) => {
-        child.visible = isRepairing;
-      });
-    }
-
-    boltRefs.current.forEach((bolt) => {
-      if (bolt) {
-        bolt.visible = isRepairing;
-      }
-    });
-  }, [isRepairing]);
-
-  useEffect(() => {
-    const kd = (e) => hydro.onKeyDown(e);
-    const ku = (e) => hydro.onKeyUp(e);
+    const dom = gl.domElement;
+    const kd = (e) => {
+      moveKeys.current[e.code] = true;
+      if (e.code === "KeyE")
+        ballastRef.current = Math.max(0, ballastRef.current - 1);
+      if (e.code === "KeyR") ballastRef.current = ballastRef.current + 1;
+      if (["Space", "ShiftLeft", "ShiftRight"].includes(e.code))
+        e.preventDefault();
+    };
+    const ku = (e) => (moveKeys.current[e.code] = false);
+    dom.tabIndex = 0;
+    dom.focus();
+    dom.addEventListener("keydown", kd, { passive: false });
+    dom.addEventListener("keyup", ku);
     window.addEventListener("keydown", kd, { passive: false });
     window.addEventListener("keyup", ku, { passive: false });
     return () => {
+      dom.removeEventListener("keydown", kd);
+      dom.removeEventListener("keyup", ku);
       window.removeEventListener("keydown", kd);
       window.removeEventListener("keyup", ku);
     };
-  }, [hydro]);
+  }, [gl]);
 
+  /*──────────────────────────── 수리 로직 ──────────────────────────────*/
   useEffect(() => {
     if (!isRPressed) return;
-    const distance = player.current.distanceTo(RING_POS);
-    if (distance <= REPAIR_DISTANCE) {
+    const dist = player.current.distanceTo(RING_POS);
+    if (dist <= REPAIR_DISTANCE) {
       setIsRepairing(true);
-      onRepairStart();
+      onRepairStart?.();
 
+      // 애니메이션 재생 or 2초 후 완료
       if (actions.fix) {
         actions.fix.setLoop(THREE.LoopOnce, 1);
         actions.fix.clampWhenFinished = true;
         actions.fix.reset().play();
-
         const onFinished = (event) => {
           if (event.action === actions.fix) {
             mixer.removeEventListener("finished", onFinished);
             setIsRepairing(false);
-            onRepairComplete();
+            onRepairComplete?.();
           }
         };
         mixer.addEventListener("finished", onFinished);
+      } else {
+        setTimeout(() => {
+          setIsRepairing(false);
+          onRepairComplete?.();
+        }, 2000);
       }
     }
   }, [isRPressed, actions, mixer, onRepairStart, onRepairComplete, RING_POS]);
 
+  /*──────────────────────────── 물리 루프 ──────────────────────────────*/
   useFrame((_, dt) => {
-    if (!ready) return;
+    if (!ready.current) return;
+    const t = performance.now() * 0.001;
 
-    camera.getWorldDirection(forward);
-    forward.y = 0;
-    if (forward.lengthSq() === 0) forward.set(0, 0, -1);
-    forward.normalize();
-    right.copy(up).cross(forward).normalize();
+    const res = stepY({
+      dt,
+      y: yRef.current,
+      vy: vyRef.current,
+      weightCount: ballastRef.current,
+      bounds: { minY: 1.75, maxY: 12.0 },
+      speedXZ: 0,
+      t,
+    });
 
-    const r = hydro.step(dt, forward, right);
+    yRef.current = res.newY;
+    vyRef.current = res.newVy;
 
-    let y = r.y;
-    if (y < minY) {
-      y = minY;
-    }
-    if (y > ceilY.current) {
-      y = ceilY.current;
-    }
+    const deltaXZ = stepXZ({
+      dt,
+      camera,
+      moveKeys: moveKeys.current,
+      effMass: Math.max(100, (res.totalMass ?? 200) * 0.8),
+      bounds: null,
+    });
 
-    const min = worldBox.current.min.clone().addScalar(pad);
-    const max = worldBox.current.max.clone().addScalar(-pad);
-    const clampedX = THREE.MathUtils.clamp(r.x, min.x, max.x);
-    const clampedZ = THREE.MathUtils.clamp(r.z, min.z, max.z);
+    if (!Number.isFinite(deltaXZ.x)) deltaXZ.x = 0;
+    if (!Number.isFinite(deltaXZ.y)) deltaXZ.y = 0;
 
-    player.current.set(clampedX, y, clampedZ);
+    player.current.x += deltaXZ.x;
+    player.current.z += deltaXZ.y;
+    player.current.y = yRef.current;
+
     camera.position.copy(player.current);
-    onPositionUpdate(player.current);
+    onPositionUpdate?.({
+      x: camera.position.x,
+      y: camera.position.y,
+      z: camera.position.z,
+      ballast: ballastRef.current,
+    });
   });
 
   return (
     <>
       <primitive object={pool} />
+      {/* 수리 타겟 */}
       <mesh position={RING_POS} rotation={[Math.PI / 2, 0, 0]}>
         <torusGeometry args={[0.8, 0.02, 16, 64]} />
-        <meshBasicMaterial color={RING_COLOR} transparent opacity={0.9} />
+        <meshStandardMaterial
+          color={isRepairing ? "#00ff7f" : "#ff4040"}
+          emissive={isRepairing ? "#00ff7f" : "#ff4040"}
+          emissiveIntensity={1.4}
+        />
       </mesh>
     </>
   );
 }
 
+/*──────────────────────────── Stage2 Wrapper ──────────────────────────────*/
 export default function Stage2() {
   const [locked, setLocked] = useState(false);
   const ctrl = useRef(null);
-  const [position, setPosition] = useState({ x: 0, y: 0, z: 0 });
+  const [pos, setPos] = useState({ x: 0, y: 0, z: 0 });
+  const [ballast, setBallast] = useState(HYDRO_CONFIG.ballastKg);
   const [stage, setStage] = useState(1);
 
-  const handlePositionUpdate = (newPosition) => {
-    setPosition({
-      x: newPosition.x.toFixed(2),
-      y: newPosition.y.toFixed(2),
-      z: newPosition.z.toFixed(2),
+  const handlePositionUpdate = (p) => {
+    setPos({
+      x: p.x.toFixed(2),
+      y: p.y.toFixed(2),
+      z: p.z.toFixed(2),
     });
+    if (p.ballast !== undefined) setBallast(p.ballast);
   };
 
-  const handleRepairStart = () => {
-    setStage(3);
-  };
-  const handleRepairComplete = () => {
-    setStage(4);
-  };
+  const handleRepairStart = () => setStage(3);
+  const handleRepairComplete = () => setStage(4);
 
-  const getStageText = () => {
-    switch (stage) {
-      case 1:
-        return "빨간 원을 찾으세요.";
-      case 2:
-        return "수리해주세요";
-      case 3:
-        return "수리 중...";
-      case 4:
-        return "수리 완료!";
-      default:
-        return "빨간 원을 찾으세요.";
-    }
-  };
-
-  const getStageTitle = () => {
-    switch (stage) {
-      case 1:
-        return "현재 단계: 탐색";
-      case 2:
-        return "현재 단계: 접근";
-      case 3:
-        return "현재 단계: 수리";
-      case 4:
-        return "현재 단계: 완료";
-      default:
-        return "현재 단계: 탐색";
-    }
-  };
+  const stageText =
+    ["빨간 링을 찾으세요.", "접근 중...", "수리 중...", "✅ 수리 완료!"][
+      stage - 1
+    ] || "빨간 링을 찾으세요.";
 
   return (
     <div className="stage2-canvas">
       {!locked && (
         <div className="lock-hint" onClick={() => ctrl.current?.lock()}>
-          클릭해서 조작 시작 (WASD, Space, Shift, 마우스로 시점)
+          클릭해서 시작 (WASD 이동 / Space·Shift 상승·하강 / E,R 부력 조정 / R
+          수리)
         </div>
       )}
 
+      {/* HUD */}
       <div className="quest-panel">
         <h3>Stage 2 — 외벽 수리 훈련</h3>
-        <div className="sub">{getStageTitle()}</div>
-
-        <div className="quest-card hint-card">
-          <div>수리 위치로 접근하세요</div>
-          <div className="hint-sub">{getStageText()}</div>
+        <div className="quest-card">
+          <p>{stageText}</p>
         </div>
-
-        <div className="quest-card status-card">
-          <div className="quest-card-title">캐릭터 좌표</div>
-          <div className="status-info">
-            <div>X: {position.x}</div>
-            <div>Y: {position.y}</div>
-            <div>Z: {position.z}</div>
-          </div>
-        </div>
-
-        <div className="quest-card controls-card">
-          <div className="quest-card-title">조작법</div>
-          <div className="controls-info">
-            <div>WASD: 이동</div>
-            <div>마우스: 시점 조작</div>
-            <div>Space: 위로 이동</div>
-            <div>Shift: 아래로 이동</div>
-            <div>R키: 수리 시작</div>
-          </div>
+        <div className="quest-card">
+          <p>
+            X:{pos.x} / Y:{pos.y} / Z:{pos.z}
+          </p>
+          <p>⚖️ Ballast: {ballast}</p>
         </div>
       </div>
 
