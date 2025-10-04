@@ -23,7 +23,6 @@ export default function App() {
     stage3: <Stage3 />,
     cupola: <Cupola />,
   };
-
   const rootClass = stage === "stage3" ? "stage-stage3" : "";
 
   return (
