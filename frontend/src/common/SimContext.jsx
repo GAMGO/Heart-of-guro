@@ -1,4 +1,3 @@
-// src/common/SimContext.js
 import { createContext, useContext, useMemo, useState, useRef } from "react";
 export const SimContext = createContext(null);
 export function useSim() { return useContext(SimContext); }
@@ -17,3 +16,4 @@ export function SimProvider({ children, initialBallast=0 }) {
   }),[locked,ballast,stageText]);
   return <SimContext.Provider value={value}>{children}</SimContext.Provider>;
 }
+//
