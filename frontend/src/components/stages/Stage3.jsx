@@ -30,6 +30,9 @@ function useEdgeE() {
   };
 }
 
+const customColliderGeometry = new THREE.BoxGeometry(4, 4, 0.5);
+const customColliderMatrix = new THREE.Matrix4().makeTranslation(-5.489, 0, -8.0);
+
 function Stage3Inner({ setWaterUI, onPositionUpdate }) {
   const { camera, gl, scene } = useThree();
   const gltf = useGLTF("/pool.glb");
@@ -37,6 +40,7 @@ function Stage3Inner({ setWaterUI, onPositionUpdate }) {
   const mixerRef = useRef(null);
   const actionsRef = useRef({});
   const [ready, setReady] = useState(false);
+  const [colliderData, setColliderData] = useState([]);
 
   const worldBox = useRef(new THREE.Box3());
   const ceilY = useRef(12);
@@ -52,6 +56,7 @@ function Stage3Inner({ setWaterUI, onPositionUpdate }) {
       startX: SPAWN_POS.x,
       startY: SPAWN_POS.y,
       startZ: SPAWN_POS.z,
+      colliders: colliderData,
     })
   );
 
@@ -119,14 +124,36 @@ function Stage3Inner({ setWaterUI, onPositionUpdate }) {
     const s = gltf.scene;
     poolRef.current = s;
     s.updateMatrixWorld(true);
+    const colliders = [];
+
     s.traverse((o) => {
       if (!o.isMesh) return;
       const n = (o.name || "").toLowerCase();
       const c = o.material?.color;
       const m = c && Math.abs(c.r - 1) + Math.abs(c.g - 0) + Math.abs(c.b - 1) < 0.4;
-      if (n.includes("collider") || n.includes("collision") || m) o.visible = false;
+      
+      const isCollider = n.includes("collider") || n.includes("collision") || m;
+
+      if (isCollider) {
+        o.visible = false;
+        if (o.geometry.isBufferGeometry) {
+          colliders.push({ 
+            geometry: o.geometry, 
+            matrix: o.matrixWorld.clone() 
+          });
+        }
+      }
       if (n.includes("nasa") || n.includes("pgt")) o.visible = false;
     });
+
+    const combinedColliderData = [
+      ...colliders,
+      { 
+        geometry: customColliderGeometry, 
+        matrix: customColliderMatrix 
+      }
+    ];
+    setColliderData(combinedColliderData);
 
     worldBox.current.setFromObject(s);
     ceilY.current = worldBox.current.max.y - pad;
@@ -203,6 +230,19 @@ function Stage3Inner({ setWaterUI, onPositionUpdate }) {
       <mesh position={RING_POS} rotation={[Math.PI / 2, 0, 0]}>
         <torusGeometry args={[0.8, 0.02, 16, 64]} />
         <meshBasicMaterial color={RING_COLOR} transparent opacity={0.9} />
+      </mesh>
+      {/* 이 mesh는 시각적인 목적이 아닌 충돌 데이터 추출용으로 남겨둠.
+        실제 충돌 처리는 useVerticalHydroReal로 전달된 colliderData를 통해 이루어짐.
+        visible={false}로 설정하여 보이지 않게 처리함.
+      */}
+      <mesh
+        name="spaceship_uv_collider_visual"
+        position={[-5.489, 0, -8.0]}
+        rotation={[0, 0, 0]}
+        visible={false}
+      >
+        <boxGeometry args={[4, 4, 0.5]} />
+        <meshBasicMaterial color="red" />
       </mesh>
     </>
   );
