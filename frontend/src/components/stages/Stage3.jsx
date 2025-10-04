@@ -8,7 +8,7 @@ import "./Stage3.css";
 
 useGLTF.preload("/pool.glb");
 
-const SPAWN_POS = new THREE.Vector3(-0.41, 1.75, 14.45);
+const SPAWN_POS = new THREE.Vector3(-1.02, 1.75, 15.06);
 const RING_POS = new THREE.Vector3(-5.489, 0, -7.946);
 const RING_COLOR = "#ff3030";
 const pad = 0.25;
@@ -149,6 +149,8 @@ function Stage3Inner({ setWaterUI, onPositionUpdate }) {
     else if (opened) setPoseEnd(opened);
     else if (open) setPoseEnd(open);
     doorState.current = "CLOSED";
+
+    sim.setPosition(SPAWN_POS.x, SPAWN_POS.y, SPAWN_POS.z);
 
     setReady(true);
     return () => { dom.removeEventListener("click", lock); };
