@@ -1,14 +1,27 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { PointerLockControls, Environment, useGLTF, useAnimations } from "@react-three/drei";
+import {
+  PointerLockControls,
+  Environment,
+  useGLTF,
+  useAnimations,
+} from "@react-three/drei";
 import * as THREE from "three";
 import "./Stage2.css";
 
 useGLTF.preload("/pool.glb");
 
 function useKeys() {
-  const keys = useRef({ w: false, a: false, s: false, d: false, shift: false, r: false });
+  const keys = useRef({
+    w: false,
+    a: false,
+    s: false,
+    d: false,
+    shift: false,
+    r: false,
+  });
   const prevKeys = useRef({ r: false });
+  const [isRPressed, setIsRPressed] = useState(false);
 
   useEffect(() => {
     const down = (e) => {
@@ -31,6 +44,9 @@ function useKeys() {
           break;
         case "KeyR":
           keys.current.r = true;
+          if (!prevKeys.current.r) {
+            setIsRPressed(true);
+          }
           e.preventDefault();
           break;
         case "ShiftLeft":
@@ -57,6 +73,8 @@ function useKeys() {
           break;
         case "KeyR":
           keys.current.r = false;
+          prevKeys.current.r = false;
+          setIsRPressed(false);
           break;
         case "ShiftLeft":
         case "ShiftRight":
@@ -74,8 +92,15 @@ function useKeys() {
     };
   }, []);
 
-  const isRPressed = keys.current.r && !prevKeys.current.r;
-  prevKeys.current.r = keys.current.r;
+  useEffect(() => {
+    if (isRPressed) {
+      const timer = setTimeout(() => {
+        setIsRPressed(false);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [isRPressed]);
+
   return { keys, isRPressed };
 }
 
@@ -84,6 +109,7 @@ function Stage2Inner({ onPositionUpdate, onRepairStart }) {
   const { scene: pool, animations } = useGLTF("/pool.glb");
   const { actions, mixer } = useAnimations(animations, pool);
   const [ready, setReady] = useState(false);
+  const [isRepairing, setIsRepairing] = useState(false);
   const worldBox = useRef(new THREE.Box3());
   const player = useRef(new THREE.Vector3());
   const { keys, isRPressed } = useKeys();
@@ -96,24 +122,63 @@ function Stage2Inner({ onPositionUpdate, onRepairStart }) {
   const minY = 1.75;
   const ceilY = useRef(12);
 
+  const pgtRef = useRef(null);
+  const boltRefs = useRef([]);
+
   useEffect(() => {
     if (isRPressed) {
+      setIsRepairing(true);
       onRepairStart();
+      
       if (actions.fix) {
+        actions.fix.setLoop(THREE.LoopOnce, 1);
+        actions.fix.clampWhenFinished = true;
         actions.fix.reset().play();
+        
+        const handleAnimationComplete = () => {
+          setIsRepairing(false);
+        };
+
+        if (mixer) {
+          const onFinished = (event) => {
+            if (event.action === actions.fix) {
+              mixer.removeEventListener("finished", onFinished);
+              handleAnimationComplete();
+            }
+          };
+          mixer.addEventListener("finished", onFinished);
+        }
       }
     }
-  }, [isRPressed, actions, onRepairStart]);
+  }, [isRPressed, actions, onRepairStart, mixer]);
 
   useEffect(() => {
     pool.updateMatrixWorld(true);
+    
     pool.traverse((o) => {
-      if (!o.isMesh) return;
+      if (!o.isMesh && !o.isGroup) return;
       const name = (o.name || "").toLowerCase();
       const c = o.material?.color;
       const isMagenta = c && Math.abs(c.r - 1) + Math.abs(c.g - 0) + Math.abs(c.b - 1) < 0.4;
-      if (name.includes("collider") || name.includes("collision") || isMagenta) o.visible = false;
+      
+      if (name.includes("collider") || name.includes("collision") || isMagenta) {
+        o.visible = false;
+      }
+      
+      if (o.name === "PGT") {
+        pgtRef.current = o;
+        o.visible = false;
+        o.children.forEach(child => {
+          child.visible = false;
+        });
+      }
+      
+      if (o.name === "nasa" || o.name === "nasa001" || o.name === "nasa002" || o.name === "nasa003") {
+        boltRefs.current.push(o);
+        o.visible = false;
+      }
     });
+
     worldBox.current.setFromObject(pool);
     const center = new THREE.Vector3();
     worldBox.current.getCenter(center);
@@ -122,6 +187,21 @@ function Stage2Inner({ onPositionUpdate, onRepairStart }) {
     camera.position.copy(player.current);
     setReady(true);
   }, [pool, camera]);
+
+  useEffect(() => {
+    if (pgtRef.current) {
+      pgtRef.current.visible = isRepairing;
+      pgtRef.current.children.forEach(child => {
+        child.visible = isRepairing;
+      });
+    }
+    
+    boltRefs.current.forEach(bolt => {
+      if (bolt) {
+        bolt.visible = isRepairing;
+      }
+    });
+  }, [isRepairing]);
 
   useFrame((_, dt) => {
     if (!ready) return;
@@ -140,10 +220,18 @@ function Stage2Inner({ onPositionUpdate, onRepairStart }) {
     right.copy(up).cross(forward).normalize();
     const moveX = right.x * tmpDir.x * speed + forward.x * tmpDir.z * speed;
     const moveZ = right.z * tmpDir.x * speed + forward.z * tmpDir.z * speed;
-    tmpNext.set(player.current.x + moveX, player.current.y, player.current.z + moveZ);
+    tmpNext.set(
+      player.current.x + moveX,
+      player.current.y,
+      player.current.z + moveZ
+    );
     let y = player.current.y;
-    if (y < minY) { y = minY; }
-    if (y > ceilY.current) { y = ceilY.current; }
+    if (y < minY) {
+      y = minY;
+    }
+    if (y > ceilY.current) {
+      y = ceilY.current;
+    }
     const min = worldBox.current.min.clone().addScalar(pad);
     const max = worldBox.current.max.clone().addScalar(-pad);
     tmpNext.x = THREE.MathUtils.clamp(tmpNext.x, min.x, max.x);
