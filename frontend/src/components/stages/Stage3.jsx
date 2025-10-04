@@ -13,24 +13,21 @@ const RING_POS = new THREE.Vector3(-5.489, 0, -7.946);
 function useKeys(){
   const k=useRef({w:false,a:false,s:false,d:false});
   useEffect(()=>{
-    const d=(e)=>{switch(e.code){
-      case"KeyW":k.current.w=true;e.preventDefault();break;
-      case"KeyA":k.current.a=true;e.preventDefault();break;
-      case"KeyS":k.current.s=true;e.preventDefault();break;
-      case"KeyD":k.current.d=true;e.preventDefault();break;}};
-    const u=(e)=>{switch(e.code){
-      case"KeyW":k.current.w=false;break;
-      case"KeyA":k.current.a=false;break;
-      case"KeyS":k.current.s=false;break;
-      case"KeyD":k.current.d=false;break;}};
-    window.addEventListener("keydown",d,{passive:false});
-    window.addEventListener("keyup",u,{passive:true});
-    return()=>{window.removeEventListener("keydown",d);window.removeEventListener("keyup",u);}
+    const pressed=new Set();
+    const sync=()=>{k.current.w=pressed.has("KeyW");k.current.a=pressed.has("KeyA");k.current.s=pressed.has("KeyS");k.current.d=pressed.has("KeyD");};
+    const onDown=(e)=>{const c=e.code;if(c==="KeyW"||c==="KeyA"||c==="KeyS"||c==="KeyD"){pressed.add(c);e.preventDefault();sync();}};
+    const onUp=(e)=>{const c=e.code;if(c==="KeyW"||c==="KeyA"||c==="KeyS"||c==="KeyD"){pressed.delete(c);sync();}};
+    const onBlur=()=>{pressed.clear();sync();};
+    document.addEventListener("keydown",onDown,true);
+    document.addEventListener("keyup",onUp,true);
+    window.addEventListener("blur",onBlur);
+    document.addEventListener("visibilitychange",()=>{if(document.hidden) onBlur();});
+    return()=>{document.removeEventListener("keydown",onDown,true);document.removeEventListener("keyup",onUp,true);window.removeEventListener("blur",onBlur);};
   },[]);
   return k;
 }
 
-function Stage3Inner({setWaterUI}){
+function Stage3Inner({setWaterUI,onPanel}){
   const { camera, gl, scene } = useThree();
   const { scene: pool } = useGLTF("/pool.glb");
   const [ready,setReady]=useState(false);
@@ -193,6 +190,7 @@ function Stage3Inner({setWaterUI}){
 
     const r=hydro.step(dt);
     let y=r.y;
+    const vy=(hydro.getVY?.()??r.vy??0);
     if(y<minY){ y=minY; hydro.setY(y); hydro.setVY(0); }
     if(y>ceilY.current){ y=ceilY.current; hydro.setY(y); hydro.setVY(0); }
     tmpNext.y=y;
@@ -211,12 +209,10 @@ function Stage3Inner({setWaterUI}){
     player.current.copy(tmpNext);
     camera.position.copy(player.current);
 
+    onPanel&&onPanel({inWater:insideWater,pos:{x:player.current.x,y:player.current.y,z:player.current.z},y,vy,speedBase:base});
+
     logAccum.current+=dt;
-    if(logAccum.current>=0.25){
-      const p=player.current;
-      console.log(`[pos] x:${p.x.toFixed(3)} y:${p.y.toFixed(3)} z:${p.z.toFixed(3)}`);
-      logAccum.current=0;
-    }
+    if(logAccum.current>=0.25){ logAccum.current=0; }
   });
 
   return (
@@ -234,6 +230,7 @@ function Stage3Inner({setWaterUI}){
 
 export default function Stage3(){
   const [inWater,setInWater]=useState(false);
+  const [panel,setPanel]=useState(null);
   const ctrl=useRef(null);
   useEffect(()=>{
     const onEsc=(e)=>{ if(e.code==="Escape"){ ctrl.current?.unlock?.(); } };
@@ -253,9 +250,34 @@ export default function Stage3(){
           opacity:1
         }}/>
       )}
+      <div style={{
+        position:"absolute",
+        top:16,
+        right:16,
+        width:260,
+        background:"rgba(0,0,0,0.55)",
+        color:"#fff",
+        padding:"12px 14px",
+        borderRadius:12,
+        fontSize:14,
+        lineHeight:1.4,
+        zIndex:20,
+        backdropFilter:"blur(6px)"
+      }}>
+        <div style={{fontWeight:700,marginBottom:8}}>패널</div>
+        <div>상태: {inWater?"수중":"수면/공기"}</div>
+        <div>Y: {panel?.y?.toFixed?.(2) ?? "-"}</div>
+        <div>Vy: {(panel?.vy??0).toFixed(3)}</div>
+        <div>속도계수: {panel?.speedBase?.toFixed?.(2) ?? "-"}</div>
+        <div style={{marginTop:8,opacity:0.9}}>위치</div>
+        <div>x: {panel?.pos?panel.pos.x.toFixed(3):"-"}</div>
+        <div>y: {panel?.pos?panel.pos.y.toFixed(3):"-"}</div>
+        <div>z: {panel?.pos?panel.pos.z.toFixed(3):"-"}</div>
+        <div style={{marginTop:8,opacity:0.9}}>WASD 이동</div>
+      </div>
       <Canvas camera={{position:[-8.827, 2.060, 0.078],fov:60}}>
         <Suspense fallback={null}>
-          <Stage3Inner setWaterUI={setInWater}/>
+          <Stage3Inner setWaterUI={setInWater} onPanel={setPanel}/>
           <Environment preset="sunset"/>
         </Suspense>
         <PointerLockControls ref={ctrl}/>
