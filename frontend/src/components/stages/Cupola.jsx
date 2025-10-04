@@ -37,6 +37,7 @@ function hermite1D(y0,y1,v0,v1,h,t){
         h01=s*s*(3-2*s),         h11=s*s*(s-1);
   return h00*y0 + h*h10*v0 + h01*y1 + h*h11*v1;
 }
+const toRad = (d) => THREE.MathUtils.degToRad(d);
 
 
 const EARTH_TARGET_DIAMETER = 800.0;
@@ -45,7 +46,6 @@ const EARTH_ABS_POS = new THREE.Vector3(0, 500, 0);
 const EARTH_TILT_DEG = -45;
 const EARTH_TILT_AXIS = "z";
 const TIP_AXIS = "y";
-const toRad = (d) => THREE.MathUtils.degToRad(d);
 
 const CUPOLA_PRE_PITCH_DEG = 0;
 const CUPOLA_PRE_YAW_DEG = 90;
@@ -64,7 +64,6 @@ function FixedCameraInside() {
   const curDir = useRef(new THREE.Vector3(0, 0, -1));
   const lerpFactor = 0.1;
 
-
   useEffect(() => {
     camera.position.copy(camPos);
     camera.fov = 80;
@@ -72,18 +71,20 @@ function FixedCameraInside() {
 
     const sensitivity = 0.0025;
     let lastX = null, lastY = null;
+
     const onMove = (e) => {
       if (lastX === null) { lastX = e.clientX; lastY = e.clientY; return; }
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
       lastX = e.clientX; lastY = e.clientY;
+
       yawRef.current += dx * sensitivity;
       pitchRef.current += -dy * sensitivity;
+
       const maxPitch = toRad(88);
       pitchRef.current = Math.max(-maxPitch, Math.min(maxPitch, pitchRef.current));
     };
     const onLeave = () => { lastX = null; lastY = null; };
-
 
     gl.domElement.addEventListener("mousemove", onMove);
     gl.domElement.addEventListener("mouseleave", onLeave);
@@ -93,8 +94,7 @@ function FixedCameraInside() {
     };
   }, [camera, gl]);
 
-
-  useFrame(() => { 
+  useFrame(() => {
     const yaw = yawRef.current;
     const pitch = pitchRef.current + toRad(pitchNeutralDeg);
     const targetDir = new THREE.Vector3(
@@ -105,21 +105,22 @@ function FixedCameraInside() {
     curDir.current.lerp(targetDir, lerpFactor);
 
     camera.position.copy(camPos);
-      const look = new THREE.Vector3().copy(camPos).add(
-        new THREE.Vector3(
-          curDir.current.x * lookDist,
-          curDir.current.y * lookDist + baseYOffset,
-          curDir.current.z * lookDist
-        )
-      );
-      camera.lookAt(look);
+    const look = new THREE.Vector3().copy(camPos).add(
+      new THREE.Vector3(
+        curDir.current.x * lookDist,
+        curDir.current.y * lookDist + baseYOffset,
+        curDir.current.z * lookDist
+      )
+    );
+    camera.lookAt(look);
   });
 
-  return null;
+    return null;
 }
 
 
 function CupolaModel() {
+  const base = import.meta.env.BASE_URL || "/";
   const { scene } = useGLTF("/cupola.glb");
 
   const euler = new THREE.Euler(
@@ -137,8 +138,9 @@ useGLTF.preload("/cupola.glb");
 
 
 function Earth({ position = EARTH_ABS_POS }) {
+  const base = import.meta.env.BASE_URL || "/";
   const root = useRef();
-  const { scene, animations } = useGLTF("/earth.glb");
+  const { scene } = useGLTF("/earth.glb");
   const model = useMemo(() => SkeletonUtils.clone(scene), [scene]);
 
   useEffect(() => {
@@ -155,7 +157,7 @@ function Earth({ position = EARTH_ABS_POS }) {
       a.reset().setLoop(THREE.LoopRepeat, Infinity).play()
     );
   }, [actions]);
-  
+
 
   useFrame((_, dt) => {
     if (!actions || Object.keys(actions).length === 0) {
@@ -191,22 +193,22 @@ function CupolaISS({ earthPos = EARTH_ABS_POS, scaleKmToScene = 0.001 }) {
   const { camera } = useThree();
 
   const qPre = useMemo(() => {
-      const e = new THREE.Euler(
-        toRad(CUPOLA_PRE_PITCH_DEG),
-        toRad(CUPOLA_PRE_YAW_DEG),
-        toRad(CUPOLA_PRE_ROLL_DEG),
-        "XYZ"
-      );
-      return new THREE.Quaternion().setFromEuler(e);
+    const e = new THREE.Euler(
+      toRad(CUPOLA_PRE_PITCH_DEG),
+      toRad(CUPOLA_PRE_YAW_DEG),
+      toRad(CUPOLA_PRE_ROLL_DEG),
+      "XYZ"
+    );
+    return new THREE.Quaternion().setFromEuler(e);
   }, []);
-
+  
   const qTipAlign = useMemo(() => {
     const tipLocal = TIP_AXIS === "y" ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
     return new THREE.Quaternion().setFromUnitVectors(tipLocal, new THREE.Vector3(0, 0, 1));
   }, []);
-
-  const placedOnce = useRef(false);
   
+  const placedOnce = useRef(false);
+
   useFrame(() => {
     if (!group.current) return;
 
@@ -230,6 +232,7 @@ function CupolaISS({ earthPos = EARTH_ABS_POS, scaleKmToScene = 0.001 }) {
       earthPos.z + posScene.y
     );
 
+    
     group.current.position.copy(worldPos);
     group.current.quaternion.copy(qLVLH).multiply(qTipAlign).multiply(qRollFix).multiply(qPre);
 
@@ -257,21 +260,18 @@ export default function Cupola() {
   return (
     <div className="fullscreen-canvas">
       <Canvas shadows gl={{ antialias: true }}>
+        <color attach="background" args={["#000"]} />
+        <Stars radius={400} depth={80} count={20000} factor={4} fade />
 
         <hemisphereLight intensity={0.9} color="#fff" groundColor="#222" />
         <spotLight position={[0, 1.6, 0]} angle={1.0} penumbra={0.6} intensity={1.4} />
         <pointLight position={[0, 1.0, 0]} intensity={0.8} distance={6} />
         <directionalLight position={[2, 3, 1]} intensity={0.6} />
 
-        <Suspense fallback={<Html center>Loading…</Html>}>
-
-          <color attach="background" args={["#000"]} />
-
+        <Suspense fallback={<Html center style={{ color: "#fff" }}>Loading…</Html>}>
           <FixedCameraInside />
-          <CupolaModel />
-
           <Earth />
-          <Stars radius={400} depth={80} count={20000} factor={4} fade />
+          <CupolaISS />
         </Suspense>
       </Canvas>
     </div>
