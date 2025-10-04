@@ -8,21 +8,21 @@ import "./Stage3.css";
 
 useGLTF.preload("/pool.glb");
 
+const RING_POS = new THREE.Vector3(-5.489, 0, -7.946);
+
 function useKeys(){
-  const k=useRef({w:false,a:false,s:false,d:false,shift:false});
+  const k=useRef({w:false,a:false,s:false,d:false});
   useEffect(()=>{
     const d=(e)=>{switch(e.code){
       case"KeyW":k.current.w=true;e.preventDefault();break;
       case"KeyA":k.current.a=true;e.preventDefault();break;
       case"KeyS":k.current.s=true;e.preventDefault();break;
-      case"KeyD":k.current.d=true;e.preventDefault();break;
-      case"ShiftLeft":case"ShiftRight":k.current.shift=true;break;}};
+      case"KeyD":k.current.d=true;e.preventDefault();break;}};
     const u=(e)=>{switch(e.code){
       case"KeyW":k.current.w=false;break;
       case"KeyA":k.current.a=false;break;
       case"KeyS":k.current.s=false;break;
-      case"KeyD":k.current.d=false;break;
-      case"ShiftLeft":case"ShiftRight":k.current.shift=false;break;}};
+      case"KeyD":k.current.d=false;break;}};
     window.addEventListener("keydown",d,{passive:false});
     window.addEventListener("keyup",u,{passive:true});
     return()=>{window.removeEventListener("keydown",d);window.removeEventListener("keyup",u);}
@@ -60,6 +60,8 @@ function Stage3Inner({setWaterUI}){
   const dirRef=useRef();
   const inWaterRef=useRef(false);
 
+  const logAccum=useRef(0);
+
   const resolvePointAABB=(p,box,r)=>{
     if(!box) return false;
     const ix=p.x>box.min.x-r && p.x<box.max.x+r;
@@ -76,7 +78,7 @@ function Stage3Inner({setWaterUI}){
     else { if(p.z>tmpCtr.z) p.z=box.max.z+r; else p.z=box.min.z-r; return "z"; }
   };
 
-  const collideAll=(p,boxes,r,passes=3)=>{
+  const collideAll=(p,boxes,r,passes=4)=>{
     let hit=false, axis=null;
     for(let n=0;n<passes;n++){
       let any=false;
@@ -134,8 +136,9 @@ function Stage3Inner({setWaterUI}){
     worldBox.current.setFromObject(pool);
     ceilY.current=worldBox.current.max.y - pad;
 
-    player.current.set(4,minY,8);
-    hydro.setY(minY); hydro.setVY(0);
+    player.current.set(-8.827, 2.060, 0.078);
+    hydro.setY(2.060);
+    hydro.setVY(0);
     camera.position.copy(player.current);
 
     const dom = gl.domElement;
@@ -168,7 +171,7 @@ function Stage3Inner({setWaterUI}){
     gl.setClearColor(insideWater ? "#9fdfff" : "#87cefa");
 
     const baseAir=2.0, baseWater=1.45;
-    const base=(insideWater?baseWater:baseAir)*(keys.current.shift?1.75:1.0);
+    const base=(insideWater?baseWater:baseAir);
     const speed=base*dt;
 
     tmpDir.set(0,0,0);
@@ -207,6 +210,13 @@ function Stage3Inner({setWaterUI}){
 
     player.current.copy(tmpNext);
     camera.position.copy(player.current);
+
+    logAccum.current+=dt;
+    if(logAccum.current>=0.25){
+      const p=player.current;
+      console.log(`[pos] x:${p.x.toFixed(3)} y:${p.y.toFixed(3)} z:${p.z.toFixed(3)}`);
+      logAccum.current=0;
+    }
   });
 
   return (
@@ -214,17 +224,24 @@ function Stage3Inner({setWaterUI}){
       <ambientLight ref={ambRef} intensity={0.8}/>
       <directionalLight ref={dirRef} position={[8,12,6]} intensity={1.1}/>
       <primitive object={pool} />
+      <mesh position={RING_POS} rotation={[Math.PI/2,0,0]}>
+        <torusGeometry args={[0.8,0.02,16,64]}/>
+        <meshBasicMaterial color="#ff2a2a" transparent opacity={0.9}/>
+      </mesh>
     </>
   );
 }
 
 export default function Stage3(){
-  const [locked,setLocked]=useState(false);
   const [inWater,setInWater]=useState(false);
   const ctrl=useRef(null);
+  useEffect(()=>{
+    const onEsc=(e)=>{ if(e.code==="Escape"){ ctrl.current?.unlock?.(); } };
+    window.addEventListener("keydown",onEsc,{passive:true});
+    return()=>window.removeEventListener("keydown",onEsc);
+  },[]);
   return(
     <div className="stage3-canvas">
-      {!locked && <div className="lock-hint" onClick={()=>ctrl.current?.lock()}>클릭해서 조작 시작 (WASD, Shift, 마우스로 시점)</div>}
       {inWater && (
         <div style={{
           position:"absolute",
@@ -236,12 +253,12 @@ export default function Stage3(){
           opacity:1
         }}/>
       )}
-      <Canvas camera={{position:[8,2,8],fov:60}}>
+      <Canvas camera={{position:[-8.827, 2.060, 0.078],fov:60}}>
         <Suspense fallback={null}>
           <Stage3Inner setWaterUI={setInWater}/>
           <Environment preset="sunset"/>
         </Suspense>
-        <PointerLockControls ref={ctrl} onLock={()=>setLocked(true)} onUnlock={()=>setLocked(false)}/>
+        <PointerLockControls ref={ctrl}/>
       </Canvas>
     </div>
   );
