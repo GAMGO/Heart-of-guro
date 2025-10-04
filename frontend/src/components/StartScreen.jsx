@@ -1,21 +1,33 @@
-// src/components/StartScreen.jsx
-import React from "react";
-import "../styles/StartScreen.css";
-import Stage1 from "./stages/Stage1";
+import React, { useState } from "react";
+import StartScreen from "./components/StartScreen.jsx";
+import StageLayout from "./components/StageLayout.jsx";
+import Stage1 from "./components/stages/Stage1.jsx";
+import Stage2 from "./components/stages/Stage2.jsx";
+import Stage3 from "./components/stages/Stage3.jsx";
+import Cupola from "./components/stages/Cupola.jsx";
 
-export default function StartScreen({ onStart }) {
+export default function App() {
+  const [screen, setScreen] = useState("intro");
+  const [stage, setStage] = useState("stage1");
+
+  const handleStart = (selected) => {
+    setStage(selected);
+    setScreen("stage");
+  };
+
+  if (screen === "intro") return <StartScreen onStart={handleStart} />;
+
+  const stageMap = {
+    stage1: <Stage1 />,
+    stage2: <Stage2 />,
+    stage3: <Stage3 />,
+    cupola: <Cupola />,
+  };
+  const rootClass = stage === "stage3" ? "stage-stage3" : "";
+
   return (
-    <div className="start-screen">
-      <button className="start-btn" onClick={() => onStart()}>
-        Start
-      </button>
-      <div className="acrostic">
-        <p><b>N</b>ASA</p>
-        <p><b>A</b>nniversary</p>
-        <p><b>S</b>tories</p>
-        <p><b>A</b>pp</p>
-      </div>
-      <img src="/logo.png" alt="NASA Logo" className="logo" />
+    <div className={rootClass}>
+      {stageMap[stage]}
     </div>
   );
 }
