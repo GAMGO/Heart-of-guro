@@ -6,6 +6,7 @@ npm install
 npm i three @react-three/fiber @react-three/drei
 npm install axios
 npm i three-mesh-bvh
+npm install @react-three/postprocessing postprocessing
 # backend
 cd backend
 npm install
