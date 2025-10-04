@@ -17,7 +17,6 @@ function useKeys() {
     a: false,
     s: false,
     d: false,
-    shift: false,
     r: false,
   });
   const prevKeys = useRef({ r: false });
@@ -49,10 +48,6 @@ function useKeys() {
           }
           e.preventDefault();
           break;
-        case "ShiftLeft":
-        case "ShiftRight":
-          keys.current.shift = true;
-          break;
         default:
           break;
       }
@@ -75,10 +70,6 @@ function useKeys() {
           keys.current.r = false;
           prevKeys.current.r = false;
           setIsRPressed(false);
-          break;
-        case "ShiftLeft":
-        case "ShiftRight":
-          keys.current.shift = false;
           break;
         default:
           break;
@@ -104,7 +95,7 @@ function useKeys() {
   return { keys, isRPressed };
 }
 
-function Stage2Inner({ onPositionUpdate, onRepairStart }) {
+function Stage2Inner({ onPositionUpdate, onRepairStart, onRepairComplete }) {
   const { camera } = useThree();
   const { scene: pool, animations } = useGLTF("/pool.glb");
   const { actions, mixer } = useAnimations(animations, pool);
@@ -125,32 +116,45 @@ function Stage2Inner({ onPositionUpdate, onRepairStart }) {
   const pgtRef = useRef(null);
   const boltRefs = useRef([]);
 
+  const RING_POS = useMemo(() => new THREE.Vector3(-1.59, 0.0, 14.89), []);
+  const RING_COLOR = "#ff3030";
+  const REPAIR_DISTANCE = 2.0;
+
   useEffect(() => {
     if (isRPressed) {
-      setIsRepairing(true);
-      onRepairStart();
+      const distance = player.current.distanceTo(RING_POS);
+      console.log("현재 거리:", distance.toFixed(2), "수리 가능 거리:", REPAIR_DISTANCE);
       
-      if (actions.fix) {
-        actions.fix.setLoop(THREE.LoopOnce, 1);
-        actions.fix.clampWhenFinished = true;
-        actions.fix.reset().play();
+      if (distance <= REPAIR_DISTANCE) {
+        console.log("수리 가능한 거리입니다! 수리 시작!");
+        setIsRepairing(true);
+        onRepairStart();
         
-        const handleAnimationComplete = () => {
-          setIsRepairing(false);
-        };
-
-        if (mixer) {
-          const onFinished = (event) => {
-            if (event.action === actions.fix) {
-              mixer.removeEventListener("finished", onFinished);
-              handleAnimationComplete();
-            }
+        if (actions.fix) {
+          actions.fix.setLoop(THREE.LoopOnce, 1);
+          actions.fix.clampWhenFinished = true;
+          actions.fix.reset().play();
+          
+          const handleAnimationComplete = () => {
+            setIsRepairing(false);
+            onRepairComplete();
           };
-          mixer.addEventListener("finished", onFinished);
+
+          if (mixer) {
+            const onFinished = (event) => {
+              if (event.action === actions.fix) {
+                mixer.removeEventListener("finished", onFinished);
+                handleAnimationComplete();
+              }
+            };
+            mixer.addEventListener("finished", onFinished);
+          }
         }
+      } else {
+        console.log("수리 위치에서 너무 멉니다. 더 가까이 접근하세요!");
       }
     }
-  }, [isRPressed, actions, onRepairStart, mixer]);
+  }, [isRPressed, actions, onRepairStart, onRepairComplete, mixer, RING_POS]);
 
   useEffect(() => {
     pool.updateMatrixWorld(true);
@@ -205,7 +209,7 @@ function Stage2Inner({ onPositionUpdate, onRepairStart }) {
 
   useFrame((_, dt) => {
     if (!ready) return;
-    const base = keys.current.shift ? 3.5 : 2.0;
+    const base = 2.0;
     const speed = base * dt;
     tmpDir.set(0, 0, 0);
     if (keys.current.w) tmpDir.z += 1;
@@ -241,13 +245,22 @@ function Stage2Inner({ onPositionUpdate, onRepairStart }) {
     onPositionUpdate(player.current);
   });
 
-  return <primitive object={pool} />;
+  return (
+    <>
+      <primitive object={pool} />
+      <mesh position={RING_POS} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.8, 0.02, 16, 64]} />
+        <meshBasicMaterial color={RING_COLOR} transparent opacity={0.9} />
+      </mesh>
+    </>
+  );
 }
 
 export default function Stage2() {
   const [locked, setLocked] = useState(false);
   const ctrl = useRef(null);
   const [position, setPosition] = useState({ x: 0, y: 0, z: 0 });
+  const [stage, setStage] = useState(1);
 
   const handlePositionUpdate = (newPosition) => {
     setPosition({
@@ -259,22 +272,59 @@ export default function Stage2() {
 
   const handleRepairStart = () => {
     console.log("수리 시작됨!");
+    setStage(3);
+  };
+
+  const handleRepairComplete = () => {
+    console.log("수리 완료됨!");
+    setStage(4);
+  };
+
+  const getStageText = () => {
+    switch (stage) {
+      case 1:
+        return "빨간 원을 찾으세요.";
+      case 2:
+        return "수리해주세요";
+      case 3:
+        return "수리 중...";
+      case 4:
+        return "수리 완료!";
+      default:
+        return "빨간 원을 찾으세요.";
+    }
+  };
+
+  const getStageTitle = () => {
+    switch (stage) {
+      case 1:
+        return "현재 단계: 탐색";
+      case 2:
+        return "현재 단계: 접근";
+      case 3:
+        return "현재 단계: 수리";
+      case 4:
+        return "현재 단계: 완료";
+      default:
+        return "현재 단계: 탐색";
+    }
   };
 
   return (
     <div className="stage2-canvas">
       {!locked && (
         <div className="lock-hint" onClick={() => ctrl.current?.lock()}>
-          클릭해서 조작 시작 (WASD, Shift, 마우스로 시점)
+          클릭해서 조작 시작 (WASD, 마우스로 시점)
         </div>
       )}
 
       <div className="quest-panel">
         <h3>Stage 2 — 외벽 수리 훈련</h3>
-        <div className="sub">현재 단계: 접근</div>
+        <div className="sub">{getStageTitle()}</div>
 
         <div className="quest-card hint-card">
           <div>수리 위치로 접근하세요</div>
+          <div className="hint-sub">{getStageText()}</div>
         </div>
 
         <div className="quest-card status-card">
@@ -283,6 +333,15 @@ export default function Stage2() {
             <div>X: {position.x}</div>
             <div>Y: {position.y}</div>
             <div>Z: {position.z}</div>
+          </div>
+        </div>
+
+        <div className="quest-card controls-card">
+          <div className="quest-card-title">조작법</div>
+          <div className="controls-info">
+            <div>WASD: 이동</div>
+            <div>마우스: 시점 조작</div>
+            <div>R키: 수리 시작</div>
           </div>
         </div>
       </div>
@@ -294,6 +353,7 @@ export default function Stage2() {
           <Stage2Inner
             onPositionUpdate={handlePositionUpdate}
             onRepairStart={handleRepairStart}
+            onRepairComplete={handleRepairComplete}
           />
           <Environment preset="warehouse" />
         </Suspense>

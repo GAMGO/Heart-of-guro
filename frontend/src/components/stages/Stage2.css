@@ -91,3 +91,25 @@
 .status-info div {
   margin-bottom: 2px;
 }
+
+.quest-card.controls-card {
+  background:  rgba(128,181,255,0.35);
+  border-color: #e8f2ff;
+}
+
+.controls-info {
+  font-size: 13px;
+  color: #e8f2ff;
+  font-family: 'Courier New', monospace;
+}
+
+.controls-info div {
+  margin-bottom: 2px;
+}
+
+.hint-sub {
+  font-size: 12px;
+  color: #e8f2ff;
+  margin-top: 4px;
+  font-style: italic;
+}
