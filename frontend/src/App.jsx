@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import StartScreen from "./components/StartScreen.jsx";
 import StageLayout from "./components/StageLayout.jsx";
 import Stage1 from "./components/stages/Stage1.jsx";
@@ -7,27 +7,43 @@ import Stage3 from "./components/stages/Stage3.jsx";
 import Cupola from "./components/stages/Cupola.jsx";
 
 export default function App() {
-  const [screen, setScreen] = useState("intro");
+  const [scene, setScene] = useState("splash");
   const [stage, setStage] = useState("stage1");
-
-  const handleStart = (selected) => {
-    setStage(selected);
-    setScreen("stage");
-  };
-
-  if (screen === "intro") return <StartScreen onStart={handleStart} />;
+  const stageRef = useRef(null);
 
   const stageMap = {
-    stage1: <Stage1 />,
-    stage2: <Stage2 />,
-    stage3: <Stage3 />,
-    cupola: <Cupola />,
+    stage1: <Stage1 ref={stageRef} />,
+    stage2: <Stage2 ref={stageRef} />,
+    stage3: <Stage3 ref={stageRef} />,
+    cupola: <Cupola ref={stageRef} />,
   };
-  const rootClass = stage === "stage3" ? "stage-stage3" : "";
+
+  const rootClass = scene === "stage" && stage === "stage3" ? "stage-stage3" : "";
 
   return (
     <div className={rootClass}>
-      {stageMap[stage]}
+      {scene === "splash" && (
+        <StartScreen
+          onStart={(selected) => {
+            setStage(selected || "stage1");
+            setScene("stage");
+          }}
+          onStage={(s) => {
+            setStage(s);
+            setScene("stage");
+          }}
+          onCupola={() => {
+            setStage("cupola");
+            setScene("stage");
+          }}
+        />
+      )}
+
+      {scene === "stage" && (
+        <>
+          {stageMap[stage] || null}
+        </>
+      )}
     </div>
   );
 }
