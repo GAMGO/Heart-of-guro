@@ -119,7 +119,13 @@ export default function Stage2() {
       )}
 
       <div className="quest-panel">
-        {/* 설명창 */}
+        <h3>Stage 2 — 외벽 수리 훈련</h3>
+        <div className="sub">현재 단계: 접근</div>
+        
+        
+        <div className="quest-card hint-card">
+          <div>볼트 위치로 접근하세요</div>
+        </div>
       </div>
 
       <Canvas camera={{ position: [8, 2, 8], fov: 60 }}>
