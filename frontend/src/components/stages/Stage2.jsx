@@ -11,24 +11,50 @@ function useKeys() {
   useEffect(() => {
     const down = (e) => {
       switch (e.code) {
-        case "KeyW": keys.current.w = true; e.preventDefault(); break;
-        case "KeyA": keys.current.a = true; e.preventDefault(); break;
-        case "KeyS": keys.current.s = true; e.preventDefault(); break;
-        case "KeyD": keys.current.d = true; e.preventDefault(); break;
+        case "KeyW":
+          keys.current.w = true;
+          e.preventDefault();
+          break;
+        case "KeyA":
+          keys.current.a = true;
+          e.preventDefault();
+          break;
+        case "KeyS":
+          keys.current.s = true;
+          e.preventDefault();
+          break;
+        case "KeyD":
+          keys.current.d = true;
+          e.preventDefault();
+          break;
         case "ShiftLeft":
-        case "ShiftRight": keys.current.shift = true; break;
-        default: break;
+        case "ShiftRight":
+          keys.current.shift = true;
+          break;
+        default:
+          break;
       }
     };
     const up = (e) => {
       switch (e.code) {
-        case "KeyW": keys.current.w = false; break;
-        case "KeyA": keys.current.a = false; break;
-        case "KeyS": keys.current.s = false; break;
-        case "KeyD": keys.current.d = false; break;
+        case "KeyW":
+          keys.current.w = false;
+          break;
+        case "KeyA":
+          keys.current.a = false;
+          break;
+        case "KeyS":
+          keys.current.s = false;
+          break;
+        case "KeyD":
+          keys.current.d = false;
+          break;
         case "ShiftLeft":
-        case "ShiftRight": keys.current.shift = false; break;
-        default: break;
+        case "ShiftRight":
+          keys.current.shift = false;
+          break;
+        default:
+          break;
       }
     };
     window.addEventListener("keydown", down, { passive: false });
@@ -41,7 +67,7 @@ function useKeys() {
   return keys;
 }
 
-function Stage2Inner() {
+function Stage2Inner({ onPositionUpdate }) {
   const { camera } = useThree();
   const { scene: pool } = useGLTF("/pool.glb");
   const [ready, setReady] = useState(false);
@@ -63,8 +89,10 @@ function Stage2Inner() {
       if (!o.isMesh) return;
       const name = (o.name || "").toLowerCase();
       const c = o.material?.color;
-      const isMagenta = c && Math.abs(c.r - 1) + Math.abs(c.g - 0) + Math.abs(c.b - 1) < 0.4;
-      if (name.includes("collider") || name.includes("collision") || isMagenta) o.visible = false;
+      const isMagenta =
+        c && Math.abs(c.r - 1) + Math.abs(c.g - 0) + Math.abs(c.b - 1) < 0.4;
+      if (name.includes("collider") || name.includes("collision") || isMagenta)
+        o.visible = false;
     });
     worldBox.current.setFromObject(pool);
     const center = new THREE.Vector3();
@@ -92,16 +120,25 @@ function Stage2Inner() {
     right.copy(up).cross(forward).normalize();
     const moveX = right.x * tmpDir.x * speed + forward.x * tmpDir.z * speed;
     const moveZ = right.z * tmpDir.x * speed + forward.z * tmpDir.z * speed;
-    tmpNext.set(player.current.x + moveX, player.current.y, player.current.z + moveZ);
+    tmpNext.set(
+      player.current.x + moveX,
+      player.current.y,
+      player.current.z + moveZ
+    );
     let y = player.current.y;
-    if (y < minY) { y = minY; }
-    if (y > ceilY.current) { y = ceilY.current; }
+    if (y < minY) {
+      y = minY;
+    }
+    if (y > ceilY.current) {
+      y = ceilY.current;
+    }
     const min = worldBox.current.min.clone().addScalar(pad);
     const max = worldBox.current.max.clone().addScalar(-pad);
     tmpNext.x = THREE.MathUtils.clamp(tmpNext.x, min.x, max.x);
     tmpNext.z = THREE.MathUtils.clamp(tmpNext.z, min.z, max.z);
     player.current.set(tmpNext.x, y, tmpNext.z);
     camera.position.copy(player.current);
+    onPositionUpdate(player.current);
   });
 
   return <primitive object={pool} />;
@@ -110,6 +147,17 @@ function Stage2Inner() {
 export default function Stage2() {
   const [locked, setLocked] = useState(false);
   const ctrl = useRef(null);
+
+  const [position, setPosition] = useState({ x: 0, y: 0, z: 0 });
+
+  const handlePositionUpdate = (newPosition) => {
+    setPosition({
+      x: newPosition.x.toFixed(2),
+      y: newPosition.y.toFixed(2),
+      z: newPosition.z.toFixed(2),
+    });
+  };
+
   return (
     <div className="stage2-canvas">
       {!locked && (
@@ -121,10 +169,18 @@ export default function Stage2() {
       <div className="quest-panel">
         <h3>Stage 2 — 외벽 수리 훈련</h3>
         <div className="sub">현재 단계: 접근</div>
-        
-        
+
         <div className="quest-card hint-card">
           <div>볼트 위치로 접근하세요</div>
+        </div>
+
+        <div className="quest-card status-card">
+          <div className="quest-card-title">캐릭터 좌표</div>
+          <div className="status-info">
+            <div>X: {position.x}</div>
+            <div>Y: {position.y}</div>
+            <div>Z: {position.z}</div>
+          </div>
         </div>
       </div>
 
@@ -132,13 +188,13 @@ export default function Stage2() {
         <ambientLight intensity={0.7} />
         <directionalLight position={[8, 12, 6]} intensity={1.1} />
         <Suspense fallback={null}>
-          <Stage2Inner />
+          <Stage2Inner onPositionUpdate={handlePositionUpdate} />
           <Environment preset="warehouse" />
         </Suspense>
-        <PointerLockControls 
-          ref={ctrl} 
-          onLock={() => setLocked(true)} 
-          onUnlock={() => setLocked(false)} 
+        <PointerLockControls
+          ref={ctrl}
+          onLock={() => setLocked(true)}
+          onUnlock={() => setLocked(false)}
         />
       </Canvas>
     </div>
