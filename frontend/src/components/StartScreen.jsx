@@ -1,5 +1,7 @@
+// src/components/StartScreen.jsx
 import React from "react";
 import "../styles/StartScreen.css";
+import Stage1 from "./stages/Stage1";
 
 export default function StartScreen({ onStart }) {
   return (
