@@ -71,7 +71,7 @@ export default function StartScreen({ onStart }) {
         <button onClick={() => onStart("stage1")}>Stage1</button>
         <button onClick={() => onStart("stage2")}>Stage2</button>
         <button onClick={() => onStart("stage3")}>Stage3</button>
-        <button onClick={() => onStart("Cupola")}>Cupola</button>
+        <button onClick={() => onStart("cupola")}>Cupola</button>
       </div>
 
       <img src="/logo.png" alt="NASA Logo" className="logo" />
