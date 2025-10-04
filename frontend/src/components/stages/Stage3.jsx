@@ -1,6 +1,6 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { PointerLockControls, Environment, useGLTF } from "@react-three/drei";
+import { PointerLockControls, Environment, useGLTF, useAnimations } from "@react-three/drei";
 import * as THREE from "three";
 import useVerticalHydroReal from "../../physics/useVerticalHydroReal";
 import { buildEmuNblConfig } from "../../physics/nasaPresets";
@@ -8,28 +8,42 @@ import "./Stage3.css";
 
 useGLTF.preload("/pool.glb");
 
+const SPAWN_POS = new THREE.Vector3(-8.827, 2.06, 0.078);
 const RING_POS = new THREE.Vector3(-5.489, 0, -7.946);
+const RING_COLOR = "#ff3030";
+const pad=0.25, minY=1.75, radius=0.4;
 
 function useKeys(){
-  const k=useRef({w:false,a:false,s:false,d:false});
+  const k=useRef({w:false,a:false,s:false,d:false,c:false,e:false});
+  const prev=useRef({e:false});
   useEffect(()=>{
-    const pressed=new Set();
-    const sync=()=>{k.current.w=pressed.has("KeyW");k.current.a=pressed.has("KeyA");k.current.s=pressed.has("KeyS");k.current.d=pressed.has("KeyD");};
-    const onDown=(e)=>{const c=e.code;if(c==="KeyW"||c==="KeyA"||c==="KeyS"||c==="KeyD"){pressed.add(c);e.preventDefault();sync();}};
-    const onUp=(e)=>{const c=e.code;if(c==="KeyW"||c==="KeyA"||c==="KeyS"||c==="KeyD"){pressed.delete(c);sync();}};
-    const onBlur=()=>{pressed.clear();sync();};
-    document.addEventListener("keydown",onDown,true);
-    document.addEventListener("keyup",onUp,true);
-    window.addEventListener("blur",onBlur);
-    document.addEventListener("visibilitychange",()=>{if(document.hidden) onBlur();});
-    return()=>{document.removeEventListener("keydown",onDown,true);document.removeEventListener("keyup",onUp,true);window.removeEventListener("blur",onBlur);};
+    const d=(e)=>{switch(e.code){
+      case"KeyW":k.current.w=true;e.preventDefault();break;
+      case"KeyA":k.current.a=true;e.preventDefault();break;
+      case"KeyS":k.current.s=true;e.preventDefault();break;
+      case"KeyD":k.current.d=true;e.preventDefault();break;
+      case"KeyC":k.current.c=true;e.preventDefault();break;
+      case"KeyE":k.current.e=true;e.preventDefault();break;}};
+    const u=(e)=>{switch(e.code){
+      case"KeyW":k.current.w=false;break;
+      case"KeyA":k.current.a=false;break;
+      case"KeyS":k.current.s=false;break;
+      case"KeyD":k.current.d=false;break;
+      case"KeyC":k.current.c=false;break;
+      case"KeyE":k.current.e=false;break;}};
+    window.addEventListener("keydown",d,{passive:false});
+    window.addEventListener("keyup",u,{passive:true});
+    return()=>{window.removeEventListener("keydown",d);window.removeEventListener("keyup",u);}
   },[]);
-  return k;
+  const edgeE=()=>{const now=k.current.e,was=prev.current.e;prev.current.e=now;return now&&!was;};
+  return {keys:k,edgeE};
 }
 
-function Stage3Inner({setWaterUI,onPanel}){
+function Stage3Inner({setWaterUI}){
   const { camera, gl, scene } = useThree();
-  const { scene: pool } = useGLTF("/pool.glb");
+  const gltf = useGLTF("/pool.glb");
+  const poolRef=useRef();
+  const { actions, mixer } = useAnimations(gltf.animations, poolRef);
   const [ready,setReady]=useState(false);
 
   const worldBox=useRef(new THREE.Box3());
@@ -38,7 +52,8 @@ function Stage3Inner({setWaterUI,onPanel}){
   const wallBoxes=useRef([]);
 
   const player=useRef(new THREE.Vector3());
-  const keys=useKeys();
+  const {keys,edgeE}=useKeys();
+  const cPrev=useRef(false);
 
   const tmpDir = useMemo(()=>new THREE.Vector3(),[]);
   const tmpNext= useMemo(()=>new THREE.Vector3(),[]);
@@ -49,7 +64,6 @@ function Stage3Inner({setWaterUI,onPanel}){
   const tmpMax = useMemo(()=>new THREE.Vector3(),[]);
   const tmpCtr = useMemo(()=>new THREE.Vector3(),[]);
 
-  const pad=0.25, minY=1.75, radius=0.4;
   const ceilY=useRef(12);
   const hydro=useVerticalHydroReal({...buildEmuNblConfig(),microBuoyancyLiters:0.4,microHz:0.06});
 
@@ -57,7 +71,7 @@ function Stage3Inner({setWaterUI,onPanel}){
   const dirRef=useRef();
   const inWaterRef=useRef(false);
 
-  const logAccum=useRef(0);
+  const doorState=useRef("CLOSED");
 
   const resolvePointAABB=(p,box,r)=>{
     if(!box) return false;
@@ -98,9 +112,36 @@ function Stage3Inner({setWaterUI,onPanel}){
     return out;
   };
 
+  const fadeTo=(from,to,d=0.2)=>{
+    if(from&&to){ from.fadeOut(d); to.reset().fadeIn(d).play(); }
+    else if(to){ to.reset().fadeIn(d).play(); }
+  };
+
+  const playOnce=(name,cb)=>{
+    const act=actions?.[name];
+    if(!act) return;
+    act.clampWhenFinished=true;
+    act.setLoop(THREE.LoopOnce,1);
+    act.reset().play();
+    const onFinish=(e)=>{ if(e.action===act){ mixer.removeEventListener("finished",onFinish); cb&&cb(); } };
+    mixer.addEventListener("finished",onFinish);
+  };
+
+  const poseHold=(name)=>{
+    const act=actions?.[name];
+    if(!act) return;
+    act.clampWhenFinished=true;
+    act.setLoop(THREE.LoopOnce,1);
+    act.reset().play();
+    act.paused=true;
+    act.time=act.getClip().duration;
+  };
+
   useEffect(()=>{
-    pool.updateMatrixWorld(true);
-    pool.traverse((o)=>{
+    const s=gltf.scene;
+    poolRef.current=s;
+    s.updateMatrixWorld(true);
+    s.traverse((o)=>{
       if(!o.isMesh) return;
       const n=(o.name||"").toLowerCase();
       const c=o.material?.color;
@@ -109,7 +150,7 @@ function Stage3Inner({setWaterUI,onPanel}){
     });
 
     const spaceshipNodes=[];
-    pool.traverse((o)=>{ if(o.isMesh && (o.name||"").toLowerCase().includes("spaceship")) spaceshipNodes.push(o); });
+    s.traverse((o)=>{ if(o.isMesh && (o.name||"").toLowerCase().includes("spaceship")) spaceshipNodes.push(o); });
     if(spaceshipNodes.length){
       const b=new THREE.Box3(), tb=new THREE.Box3();
       spaceshipNodes.forEach((o)=>{ tb.setFromObject(o); b.union(tb); });
@@ -120,34 +161,39 @@ function Stage3Inner({setWaterUI,onPanel}){
     }
 
     waterBox.current=null;
-    const wbs=buildBoxes(pool,(o)=> (o.name||"").toLowerCase().includes("water"));
+    const wbs=buildBoxes(s,(o)=> (o.name||"").toLowerCase().includes("water"));
     if(wbs.length){
       const b=new THREE.Box3(); wbs.forEach(bb=>b.union(bb)); waterBox.current=b;
     }
 
     wallBoxes.current=[
-      ...buildBoxes(pool,(o)=>/(wall|pool[_-\s]?wall|border|barrier|edge|rim)/i.test(o.name||"")),
-      ...buildBoxes(pool,(o)=>/(tile|tiles)/i.test(o.name||"") && /(wall)/i.test(o.parent?.name||""))
+      ...buildBoxes(s,(o)=>/(wall|pool[_-\s]?wall|border|barrier|edge|rim)/i.test(o.name||"")),
+      ...buildBoxes(s,(o)=>/(tile|tiles)/i.test(o.name||"") && /(wall)/i.test(o.parent?.name||""))
     ];
 
-    worldBox.current.setFromObject(pool);
+    worldBox.current.setFromObject(s);
     ceilY.current=worldBox.current.max.y - pad;
 
-    player.current.set(-8.827, 2.060, 0.078);
-    hydro.setY(2.060);
+    player.current.copy(SPAWN_POS);
+    hydro.setY(SPAWN_POS.y);
     hydro.setVY(0);
-    camera.position.copy(player.current);
+    camera.position.copy(SPAWN_POS);
 
     const dom = gl.domElement;
-    const lockOnClick = () => { if (document.pointerLockElement !== dom) dom.requestPointerLock?.(); };
-    dom.addEventListener("click", lockOnClick);
+    dom.addEventListener("click",()=>{ if(document.pointerLockElement!==dom) dom.requestPointerLock?.(); });
 
     scene.fog = new THREE.FogExp2("#a3d7ff", 0.0);
     gl.setClearColor("#87cefa", 1);
 
+    if(actions){
+      Object.values(actions).forEach(a=>{ a.enabled=true; a.stop(); a.time=0; a.clampWhenFinished=true; });
+      if(actions["closed"]) poseHold("closed");
+      doorState.current="CLOSED";
+    }
+
     setReady(true);
-    return ()=>{ dom.removeEventListener("click", lockOnClick); };
-  },[pool,camera,gl,scene,hydro]);
+    return ()=>{};
+  },[gltf,actions,camera,gl,scene,hydro]);
 
   useFrame((_,dt)=>{
     if(!ready) return;
@@ -155,10 +201,7 @@ function Stage3Inner({setWaterUI,onPanel}){
     const camPos=camera.position;
     const wb=waterBox.current;
     const insideWater = !!(wb && camPos.x>wb.min.x && camPos.x<wb.max.x && camPos.y>wb.min.y && camPos.y<wb.max.y && camPos.z>wb.min.z && camPos.z<wb.max.z);
-    if(insideWater!==inWaterRef.current){
-      inWaterRef.current=insideWater;
-      setWaterUI(insideWater);
-    }
+    if(insideWater!==inWaterRef.current){ inWaterRef.current=insideWater; setWaterUI(insideWater); }
     const fogTarget = insideWater ? 0.025 : 0.0;
     scene.fog.density += (fogTarget - scene.fog.density) * Math.min(1, dt*5);
     const ambTarget = insideWater ? 0.65 : 0.8;
@@ -170,6 +213,28 @@ function Stage3Inner({setWaterUI,onPanel}){
     const baseAir=2.0, baseWater=1.45;
     const base=(insideWater?baseWater:baseAir);
     const speed=base*dt;
+
+    if(edgeE()){
+      if(doorState.current==="CLOSED"||doorState.current==="CLOSING"){
+        const openAct=actions?.["open"];
+        const closeAct=actions?.["close"];
+        if(closeAct) closeAct.stop();
+        if(openAct){
+          fadeTo(closeAct,openAct,0.15);
+          doorState.current="OPENING";
+          playOnce("open",()=>{ doorState.current="OPENED"; if(actions?.["opened"]) poseHold("opened"); });
+        }
+      }else if(doorState.current==="OPENED"||doorState.current==="OPENING"){
+        const openAct=actions?.["open"];
+        const closeAct=actions?.["close"];
+        if(openAct) openAct.stop();
+        if(closeAct){
+          fadeTo(openAct,closeAct,0.15);
+          doorState.current="CLOSING";
+          playOnce("close",()=>{ doorState.current="CLOSED"; if(actions?.["closed"]) poseHold("closed"); });
+        }
+      }
+    }
 
     tmpDir.set(0,0,0);
     if(keys.current.w) tmpDir.z += 1;
@@ -190,7 +255,6 @@ function Stage3Inner({setWaterUI,onPanel}){
 
     const r=hydro.step(dt);
     let y=r.y;
-    const vy=(hydro.getVY?.()??r.vy??0);
     if(y<minY){ y=minY; hydro.setY(y); hydro.setVY(0); }
     if(y>ceilY.current){ y=ceilY.current; hydro.setY(y); hydro.setVY(0); }
     tmpNext.y=y;
@@ -209,28 +273,38 @@ function Stage3Inner({setWaterUI,onPanel}){
     player.current.copy(tmpNext);
     camera.position.copy(player.current);
 
-    onPanel&&onPanel({inWater:insideWater,pos:{x:player.current.x,y:player.current.y,z:player.current.z},y,vy,speedBase:base});
-
-    logAccum.current+=dt;
-    if(logAccum.current>=0.25){ logAccum.current=0; }
+    const cPressed=keys.current.c && !cPrev.current;
+    cPrev.current=keys.current.c;
+    if(cPressed){
+      const p=player.current;
+      console.log(`[pos] ${p.x.toFixed(3)} ${p.y.toFixed(3)} ${p.z.toFixed(3)} | door:${doorState.current}`);
+    }
   });
 
   return (
     <>
       <ambientLight ref={ambRef} intensity={0.8}/>
       <directionalLight ref={dirRef} position={[8,12,6]} intensity={1.1}/>
-      <primitive object={pool} />
+      <primitive ref={poolRef} object={gltf.scene} />
       <mesh position={RING_POS} rotation={[Math.PI/2,0,0]}>
         <torusGeometry args={[0.8,0.02,16,64]}/>
-        <meshBasicMaterial color="#ff2a2a" transparent opacity={0.9}/>
+        <meshBasicMaterial color={RING_COLOR} transparent opacity={0.9}/>
       </mesh>
+      <group position={[0,0,0]}>
+        <mesh position={[0,1000,0]}>
+          <boxGeometry args={[0.001,0.001,0.001]}/>
+          <meshBasicMaterial/>
+        </mesh>
+      </group>
+      <div style={{position:"absolute",top:16,left:16,background:"rgba(0,0,0,0.55)",color:"#fff",padding:"8px 10px",borderRadius:10,fontSize:14,backdropFilter:"blur(6px)"}}>
+        E 키: 문 열기/닫기
+      </div>
     </>
   );
 }
 
 export default function Stage3(){
   const [inWater,setInWater]=useState(false);
-  const [panel,setPanel]=useState(null);
   const ctrl=useRef(null);
   useEffect(()=>{
     const onEsc=(e)=>{ if(e.code==="Escape"){ ctrl.current?.unlock?.(); } };
@@ -240,44 +314,11 @@ export default function Stage3(){
   return(
     <div className="stage3-canvas">
       {inWater && (
-        <div style={{
-          position:"absolute",
-          inset:0,
-          pointerEvents:"none",
-          background:"radial-gradient(ellipse at 50% 20%, rgba(150,220,255,0.15) 0%, rgba(100,180,255,0.25) 60%, rgba(60,140,200,0.35) 100%)",
-          mixBlendMode:"screen",
-          transition:"opacity 180ms ease",
-          opacity:1
-        }}/>
+        <div style={{position:"absolute",inset:0,pointerEvents:"none",background:"radial-gradient(ellipse at 50% 20%, rgba(150,220,255,0.15) 0%, rgba(100,180,255,0.25) 60%, rgba(60,140,200,0.35) 100%)",mixBlendMode:"screen",transition:"opacity 180ms ease",opacity:1}}/>
       )}
-      <div style={{
-        position:"absolute",
-        top:16,
-        right:16,
-        width:260,
-        background:"rgba(0,0,0,0.55)",
-        color:"#fff",
-        padding:"12px 14px",
-        borderRadius:12,
-        fontSize:14,
-        lineHeight:1.4,
-        zIndex:20,
-        backdropFilter:"blur(6px)"
-      }}>
-        <div style={{fontWeight:700,marginBottom:8}}>패널</div>
-        <div>상태: {inWater?"수중":"수면/공기"}</div>
-        <div>Y: {panel?.y?.toFixed?.(2) ?? "-"}</div>
-        <div>Vy: {(panel?.vy??0).toFixed(3)}</div>
-        <div>속도계수: {panel?.speedBase?.toFixed?.(2) ?? "-"}</div>
-        <div style={{marginTop:8,opacity:0.9}}>위치</div>
-        <div>x: {panel?.pos?panel.pos.x.toFixed(3):"-"}</div>
-        <div>y: {panel?.pos?panel.pos.y.toFixed(3):"-"}</div>
-        <div>z: {panel?.pos?panel.pos.z.toFixed(3):"-"}</div>
-        <div style={{marginTop:8,opacity:0.9}}>WASD 이동</div>
-      </div>
-      <Canvas camera={{position:[-8.827, 2.060, 0.078],fov:60}}>
+      <Canvas camera={{position:[SPAWN_POS.x,SPAWN_POS.y,SPAWN_POS.z],fov:60}}>
         <Suspense fallback={null}>
-          <Stage3Inner setWaterUI={setInWater} onPanel={setPanel}/>
+          <Stage3Inner setWaterUI={setInWater}/>
           <Environment preset="sunset"/>
         </Suspense>
         <PointerLockControls ref={ctrl}/>
