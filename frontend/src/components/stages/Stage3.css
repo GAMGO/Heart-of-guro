@@ -1,0 +1,35 @@
+.stage-stage3 .stage-content {
+  position: relative;  
+  background: #000;    
+}
+
+.stage-stage3 .stage3-canvas {
+  position: absolute;
+  inset: 0;            
+}
+
+.stage-stage3 .stage-header {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 10;
+  border: none;
+  background: transparent;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  pointer-events: auto;
+}
+
+.stage-stage3 .stage-tab,
+.stage-stage3 .stage-back {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.stage-stage3 .stage-tab.active {
+  background: rgba(238, 238, 238, 0.9);
+}
