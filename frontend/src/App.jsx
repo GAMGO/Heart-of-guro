@@ -7,7 +7,7 @@ import Stage3 from "./components/stages/Stage3.jsx";
 import Cupola from "./components/stages/Cupola.jsx";
 
 export default function App() {
-  const [screen, setScreen] = useState("intro"); 
+  const [screen, setScreen] = useState("intro");
   const [stage, setStage] = useState("stage1");
 
   const handleStart = (selected) => {
@@ -15,13 +15,9 @@ export default function App() {
     setScreen("stage");
   };
 
-  const handleBack = () => {
-    setScreen("intro");
-  };
+  const handleBack = () => setScreen("intro");
 
-  if (screen === "intro") {
-    return <StartScreen onStart={handleStart} />;
-  }
+  if (screen === "intro") return <StartScreen onStart={handleStart} />;
 
   const stageMap = {
     stage1: <Stage1 />,
@@ -30,13 +26,13 @@ export default function App() {
     cupola: <Cupola />,
   };
 
+  const rootClass = stage === "stage3" ? "stage-stage3" : "";
+
   return (
-    <StageLayout
-      current={stage}
-      onChangeStage={setStage}
-      onBack={handleBack}
-    >
-      {stageMap[stage]}
-    </StageLayout>
+    <div className={rootClass}>
+      <StageLayout current={stage} onChangeStage={setStage} onBack={handleBack}>
+        {stageMap[stage]}
+      </StageLayout>
+    </div>
   );
 }
