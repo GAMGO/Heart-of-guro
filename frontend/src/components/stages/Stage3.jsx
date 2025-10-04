@@ -1,5 +1,5 @@
 // src/components/stages/Stage3.jsx
-import React, { Suspense, useMemo } from "react";
+import React, { Suspense, useMemo, useState, useRef } from "react";
 import { Environment, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { SimProvider } from "../../common/SimContext";
@@ -10,7 +10,7 @@ import { HYDRO_CONFIG } from "../../physics/hydroConfig";
 
 useGLTF.preload("/pool.glb");
 
-const SPAWN = new THREE.Vector3(-1.02, 1.75, 15.06);
+const SPAWN = new THREE.Vector3(-1.02, 8.0, 15.06);
 const RING_POS = new THREE.Vector3(-5.489, 0, -7.946);
 const BOUNDS = { minX: -20, maxX: 20, minY: 1.5, maxY: 12, minZ: -25, maxZ: 25 };
 const PLAYER_H = 1.75;
@@ -21,14 +21,13 @@ function Pool({ onColliders }) {
   useMemo(() => {
     const boxes = [];
     scene.traverse((o) => {
-      if (o.isMesh) {
-        const n = (o.name || "").toLowerCase();
-        if (n.includes("collision") || o.userData?.collider === true) {
-          o.visible = false;
-          o.updateWorldMatrix(true, true);
-          const b = new THREE.Box3().setFromObject(o);
-          boxes.push(b);
-        }
+      if (!o.isMesh) return;
+      const n = (o.name || "").toLowerCase();
+      if (n.includes("collision") || n.includes("collider") || n.startsWith("col_") || o.userData?.collider === true) {
+        o.visible = false;
+        o.updateWorldMatrix(true, true);
+        const b = new THREE.Box3().setFromObject(o);
+        boxes.push(b);
       }
     });
     onColliders(boxes);
@@ -37,19 +36,20 @@ function Pool({ onColliders }) {
 }
 
 export default function Stage3() {
-  const collidersRef = React.useRef([]);
+  const [colliders, setColliders] = useState([]);
+  const shellCam = useRef({ position: [SPAWN.x, SPAWN.y, SPAWN.z], fov: 60 });
   return (
     <SimProvider initialBallast={HYDRO_CONFIG.ballastKg}>
-      <StageShell camera={{ position: [SPAWN.x, SPAWN.y, SPAWN.z], fov: 60 }} envPreset="sunset" title={<HUD title="Stage 3" extra={null} />}>
+      <StageShell camera={shellCam.current} envPreset="sunset" title={<HUD title="Stage 3" extra={null} />}>
         <Suspense fallback={null}>
-          <Pool onColliders={(b) => (collidersRef.current = b)} />
+          <Pool onColliders={setColliders} />
           <Astronaut
             spawn={SPAWN}
             bounds={BOUNDS}
             headOffset={PLAYER_H * 0.5}
             height={PLAYER_H}
             radius={PLAYER_R}
-            colliders={collidersRef.current}
+            colliders={colliders}
             config={HYDRO_CONFIG}
           />
           <mesh position={RING_POS} rotation={[Math.PI / 2, 0, 0]}>

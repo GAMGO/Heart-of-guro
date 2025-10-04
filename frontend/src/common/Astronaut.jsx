@@ -1,3 +1,4 @@
+// src/common/Astronaut.jsx
 import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
@@ -8,8 +9,8 @@ import { HYDRO_CONFIG } from "../physics/hydroConfig";
 
 function expandBox(box, r, hh) {
   return new THREE.Box3(
-    new THREE.Vector3(box.min.x - r, box.min.y - hh, box.min.z - r),
-    new THREE.Vector3(box.max.x + r, box.max.y + hh, box.max.z + r)
+    new THREE.Vector3(box.min.x - r, box.min.y - hh * 0.6, box.min.z - r),
+    new THREE.Vector3(box.max.x + r, box.max.y + hh * 0.6, box.max.z + r)
   );
 }
 function inside(p, b) {
@@ -74,14 +75,22 @@ export default function Astronaut({
   const halfH = height * 0.5;
 
   useEffect(() => {
-    if (rig.current) {
-      const c = new THREE.Vector3(spawn.x, spawn.y - headOffset, spawn.z);
-      rig.current.position.copy(resolvePenetration(c, colliders, radius, halfH));
-    }
+    if (!rig.current) return;
+    const cy = Math.max(spawn.y - headOffset, halfH + 1e-3);
+    rig.current.position.set(spawn.x, cy, spawn.z);
     camera.position.set(0, headOffset, 0);
-    if (rig.current) rig.current.add(camera);
+    rig.current.add(camera);
     ready.current = true;
-  }, [camera, spawn, headOffset, colliders, radius, halfH]);
+  }, [camera, spawn, headOffset, halfH]);
+
+  useEffect(() => {
+    if (!rig.current || colliders.length === 0) return;
+    const c = new THREE.Vector3(rig.current.position.x, rig.current.position.y, rig.current.position.z);
+    const safe = resolvePenetration(c, colliders, radius, halfH);
+    safe.y = Math.max(safe.y, halfH + 1e-3);
+    rig.current.position.copy(safe);
+    headYRef.current = safe.y + headOffset;
+  }, [colliders, radius, halfH, headOffset]);
 
   useEffect(() => {
     const kd = (e) => {
@@ -92,27 +101,27 @@ export default function Astronaut({
     };
     const ku = (e) => (keys.current[e.code] = false);
     const clearOnBlur = () => { keys.current = {}; };
-    const focusCanvas = () => { if (gl?.domElement) gl.domElement.focus(); };
+    const enableLock = () => {
+      if (gl?.domElement && document.pointerLockElement !== gl.domElement) gl.domElement.requestPointerLock();
+    };
     if (gl?.domElement) {
       gl.domElement.setAttribute("tabindex", "0");
-      gl.domElement.addEventListener("pointerdown", focusCanvas);
+      gl.domElement.addEventListener("click", enableLock);
       gl.domElement.addEventListener("keydown", kd, { passive: false });
       gl.domElement.addEventListener("keyup", ku, { passive: false });
     }
     document.addEventListener("keydown", kd, { passive: false });
     document.addEventListener("keyup", ku, { passive: false });
     window.addEventListener("blur", clearOnBlur);
-    document.addEventListener("visibilitychange", () => { if (document.hidden) clearOnBlur(); });
     return () => {
       if (gl?.domElement) {
-        gl.domElement.removeEventListener("pointerdown", focusCanvas);
+        gl.domElement.removeEventListener("click", enableLock);
         gl.domElement.removeEventListener("keydown", kd);
         gl.domElement.removeEventListener("keyup", ku);
       }
       document.removeEventListener("keydown", kd);
       document.removeEventListener("keyup", ku);
       window.removeEventListener("blur", clearOnBlur);
-      document.removeEventListener("visibilitychange", () => {});
     };
   }, [gl, setBallast]);
 
@@ -140,7 +149,8 @@ export default function Astronaut({
     }
 
     const headTarget = Math.min(Math.max(headYRef.current, bounds.minY), bounds.maxY);
-    const centerY = headTarget - headOffset;
+    let centerY = headTarget - headOffset;
+    centerY = Math.max(centerY, halfH + 1e-3);
     next.y = centerY;
     next = resolvePenetration(next, colliders, radius, halfH);
 
