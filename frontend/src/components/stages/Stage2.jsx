@@ -171,7 +171,7 @@ export default function Stage2() {
         <div className="sub">현재 단계: 접근</div>
 
         <div className="quest-card hint-card">
-          <div>볼트 위치로 접근하세요</div>
+          <div>수리 위치로 접근하세요</div>
         </div>
 
         <div className="quest-card status-card">
