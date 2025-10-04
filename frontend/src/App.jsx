@@ -15,8 +15,6 @@ export default function App() {
     setScreen("stage");
   };
 
-  const handleBack = () => setScreen("intro");
-
   if (screen === "intro") return <StartScreen onStart={handleStart} />;
 
   const stageMap = {
@@ -30,9 +28,7 @@ export default function App() {
 
   return (
     <div className={rootClass}>
-      <StageLayout current={stage} onChangeStage={setStage} onBack={handleBack}>
-        {stageMap[stage]}
-      </StageLayout>
+      {stageMap[stage]}
     </div>
   );
 }

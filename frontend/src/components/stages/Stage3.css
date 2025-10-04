@@ -1,11 +1,11 @@
-.stage-stage3 .stage-content {
-  position: relative;  
-  background: #000;    
+.stage3-canvas {
+  position: absolute;
+  inset: 0;
 }
 
-.stage-stage3 .stage3-canvas {
-  position: absolute;
-  inset: 0;            
+.stage-stage3 .stage-content {
+  position: relative;
+  background: #000;
 }
 
 .stage-stage3 .stage-header {
