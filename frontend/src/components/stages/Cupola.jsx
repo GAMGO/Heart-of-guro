@@ -3,6 +3,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
   OrbitControls,
   Stars,
+  Sparkles,
   Environment,
   Lightformer,
   Html,
@@ -11,6 +12,7 @@ import {
   useGLTF,
   useAnimations,
 } from "@react-three/drei";
+import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
 import { SkeletonUtils } from "three-stdlib";
 
@@ -351,14 +353,13 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
   }, []);
   const cur = useRef({ inside: 1.1, eyeUp: 0.22, yaw: 0, pitch: 0 });
   const tgt = useRef({ inside: 1.1, eyeUp: 0.22, yaw: 0, pitch: 0 });
-  const BACK_EXTRA = 0.2;
   const LIM = {
     yaw: toRad(100),
     pitch: toRad(70),
     insideMin: 0.55,
     insideMax: 2.2,
   };
-  const LAMBDA = { rot: 10, pos: 8, dist: 6 };
+  const LAMBDA = { rot: 4, pos: 3, dist: 2, camPos: 4, camRot: 6 };
   const dragging = useRef(false);
   const doFrameFit = useRef(true);
   const cupolaRadiusWorld = useRef(null);
@@ -373,18 +374,18 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
     const onMove = (e) => {
       if (!dragging.current) return;
       tgt.current.yaw = THREE.MathUtils.clamp(
-        tgt.current.yaw - (e.movementX || 0) * 0.003,
+        tgt.current.yaw - (e.movementX || 0) * 0.002,
         -LIM.yaw,
         LIM.yaw
       );
       tgt.current.pitch = THREE.MathUtils.clamp(
-        tgt.current.pitch - (e.movementY || 0) * 0.003,
+        tgt.current.pitch - (e.movementY || 0) * 0.002,
         -LIM.pitch,
         LIM.pitch
       );
     };
     const onWheel = (e) => {
-      const delta = (e.deltaY > 0 ? 1 : -1) * 0.08;
+      const delta = (e.deltaY > 0 ? 1 : -1) * 0.05;
       tgt.current.inside = THREE.MathUtils.clamp(
         tgt.current.inside + delta,
         LIM.insideMin,
@@ -488,14 +489,17 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
       );
       forward = forward.lerp(baseForward, blend).normalize();
     }
-    const eye = worldPos
+    const eyeTarget = worldPos
       .clone()
       .add(forward.clone().multiplyScalar(-(d.inside + 0.2)))
       .add(up.clone().multiplyScalar(d.eyeUp));
-    const look = worldPos.clone().add(forward.clone().multiplyScalar(120));
-    camera.position.copy(eye);
-    camera.up.copy(up);
-    camera.lookAt(look);
+    const lookTarget = worldPos.clone().add(forward.clone().multiplyScalar(120));
+    const alphaPos = 1 - Math.exp(-LAMBDA.camPos * dt);
+    camera.position.lerp(eyeTarget, alphaPos);
+    const m = new THREE.Matrix4().lookAt(camera.position, lookTarget, up);
+    const qTarget = new THREE.Quaternion().setFromRotationMatrix(m);
+    const alphaRot = 1 - Math.exp(-LAMBDA.camRot * dt);
+    camera.quaternion.slerp(qTarget, alphaRot);
     if (controlsRef?.current) controlsRef.current.enabled = false;
   });
   return (
@@ -520,6 +524,8 @@ export default function CupolaScene() {
       controls.current.enableRotate = true;
       controls.current.enablePan = true;
       controls.current.enableZoom = true;
+      controls.current.enableDamping = true;
+      controls.current.dampingFactor = 0.06;
       controls.current.minDistance = 2;
       controls.current.maxDistance = 2000;
     }
@@ -540,13 +546,22 @@ export default function CupolaScene() {
         }}
       >
         <Stars
-          radius={4000}
-          depth={200}
-          count={15000}
-          factor={90}
+          radius={4500}
+          depth={260}
+          count={18000}
+          factor={220}
           saturation={1}
           fade
-          speed={4}
+          speed={6}
+        />
+        <Sparkles
+          count={2500}
+          size={8}
+          speed={1.6}
+          opacity={0.7}
+          scale={[5000, 5000, 5000]}
+          color="#ffffff"
+          noise={0.6}
         />
         <ambientLight intensity={0.6} />
         <hemisphereLight args={["#fff", "#667", 0.6]} />
@@ -610,6 +625,9 @@ export default function CupolaScene() {
           ref={controls}
           target={[earthPos.x, earthPos.y, earthPos.z]}
         />
+        <EffectComposer>
+          <Bloom intensity={0.18} luminanceThreshold={0.9} luminanceSmoothing={0.18} mipmapBlur />
+        </EffectComposer>
       </Canvas>
     </div>
   );
