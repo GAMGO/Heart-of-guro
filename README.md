@@ -10,3 +10,4 @@ npm install @react-three/postprocessing postprocessing
 # backend
 cd backend
 npm install
+npm install dotenv
