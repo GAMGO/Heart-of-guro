@@ -69,8 +69,8 @@ export default function useVerticalHydroReal(cfg) {
       let dvx = 0, dvz = 0
       if (keys.current.w) { dvx += forward.x * C.targetSpeed; dvz += forward.z * C.targetSpeed }
       if (keys.current.s) { dvx -= forward.x * C.targetSpeed; dvz -= forward.z * C.targetSpeed }
-      if (keys.current.d) { dvx += right.x * C.targetSpeed; dvz += right.z * C.targetSpeed }
-      if (keys.current.a) { dvx -= right.x * C.targetSpeed; dvz -= right.z * C.targetSpeed }
+      if (keys.current.d) { dvx -= right.x * C.targetSpeed; dvz -= right.z * C.targetSpeed }
+      if (keys.current.a) { dvx += right.x * C.targetSpeed; dvz += right.z * C.targetSpeed }
       let dvy = 0
       if (keys.current.space) dvy += C.verticalSpeed
       if (keys.current.shift) dvy -= C.verticalSpeed
