@@ -1,33 +1,80 @@
-import React, { useState } from "react";
-import StartScreen from "./components/StartScreen.jsx";
-import StageLayout from "./components/StageLayout.jsx";
-import Stage1 from "./components/stages/Stage1.jsx";
-import Stage2 from "./components/stages/Stage2.jsx";
-import Stage3 from "./components/stages/Stage3.jsx";
-import Cupola from "./components/stages/Cupola.jsx";
+import React, { useState, useEffect } from "react";
+import "../styles/StartScreen.css";
+import Cupola from "./stages/Cupola";
+import Stage1 from "./stages/Stage1";
 
-export default function App() {
-  const [screen, setScreen] = useState("intro");
-  const [stage, setStage] = useState("stage1");
+export default function StartScreen({ onStart }) {
+  const lines = [
+    { bold: "N", text: "ASA" },
+    { bold: "A", text: "nniversary" },
+    { bold: "S", text: "tories" },
+    { bold: "A", text: "pp" },
+  ];
 
-  const handleStart = (selected) => {
-    setStage(selected);
-    setScreen("stage");
-  };
+  const [displayedLines, setDisplayedLines] = useState(["", "", "", ""]);
 
-  if (screen === "intro") return <StartScreen onStart={handleStart} />;
+  useEffect(() => {
+    let lineIndex = 0;
+    let charIndex = 0;
 
-  const stageMap = {
-    stage1: <Stage1 />,
-    stage2: <Stage2 />,
-    stage3: <Stage3 />,
-    cupola: <Cupola />,
-  };
-  const rootClass = stage === "stage3" ? "stage-stage3" : "";
+    const typeNextChar = () => {
+      if (lineIndex >= lines.length) return;
+
+      const { bold, text } = lines[lineIndex];
+
+      if (charIndex === 0) {
+        // 첫 글자 표시
+        setDisplayedLines((prev) => {
+          const updated = [...prev];
+          updated[lineIndex] = `<b>${bold}</b>`;
+          return updated;
+        });
+        charIndex++;
+        setTimeout(typeNextChar, 250); // 첫글자 후 잠시 멈춤
+      } else if (charIndex <= text.length) {
+        // 글자 하나씩 추가
+        setDisplayedLines((prev) => {
+          const updated = [...prev];
+          updated[lineIndex] = `<b>${bold}</b>` + text.slice(0, charIndex);
+          return updated;
+        });
+        charIndex++;
+        setTimeout(typeNextChar, 70); // 글자 간속도
+      } else {
+        // 다음 줄로 이동
+        lineIndex++;
+        charIndex = 0;
+        setTimeout(typeNextChar, 200); // 줄 간격 대기
+      }
+    };
+
+    typeNextChar();
+  }, []);
 
   return (
-    <div className={rootClass}>
-      {stageMap[stage]}
+    <div className="start-screen">
+      <button className="start-btn" onClick={() => onStart()}>
+        START
+      </button>
+
+      <div className="acrostic">
+        {displayedLines.map((line, i) => (
+          <p
+            key={i}
+            dangerouslySetInnerHTML={{ __html: line }}
+            className="typed-line"
+          />
+        ))}
+      </div>
+
+      <div className="stageMap">
+        <button onClick={() => onStart("stage1")}>Stage1</button>
+        <button onClick={() => onStart("stage2")}>Stage2</button>
+        <button onClick={() => onStart("stage3")}>Stage3</button>
+        <button onClick={() => onStart("Cupola")}>Cupola</button>
+      </div>
+
+      <img src="/logo.png" alt="NASA Logo" className="logo" />
     </div>
   );
 }
