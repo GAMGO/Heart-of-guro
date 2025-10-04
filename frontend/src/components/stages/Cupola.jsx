@@ -1,177 +1,135 @@
-import React, { Suspense, useRef, useMemo, useEffect, useState } from "react";
+import "./Cupola.css";
+import React, { Suspense, useEffect, useRef } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Stars, Environment, Lightformer, Html, useProgress, Line, useGLTF, useAnimations } from "@react-three/drei";
+import { Environment, Html, useGLTF, Stars } from "@react-three/drei";
 import * as THREE from "three";
-import { SkeletonUtils } from "three-stdlib";
-
-const EARTH_TARGET_DIAMETER = 800.0;
-const EARTH_SPIN_SPEED = 0.12;
-const EARTH_ABS_POS = new THREE.Vector3(0, 500, 0);
-const EARTH_TILT_DEG = -45;
-const EARTH_TILT_AXIS = "z";
-const toRad = (d) => THREE.MathUtils.degToRad(d);
-
-const TIP_AXIS = "y";
 
 const CUPOLA_PRE_PITCH_DEG = 0;
-const CUPOLA_PRE_YAW_DEG   = 90;
-const CUPOLA_PRE_ROLL_DEG  = 0;
+const CUPOLA_PRE_YAW_DEG = 90;
+const CUPOLA_PRE_ROLL_DEG = 0;
+const CUPOLA_ROLL_FIX_DEG = 0;
 
-const CUPOLA_ROLL_FIX_DEG  = 0;
+function FixedCameraInside() {
+  const { camera, gl } = useThree();
+  
+  const camPos = new THREE.Vector3(0, 0.8, 0);
 
-const CAM_BACK = -1.0; 
-const CAM_UP   = 1.2;  
+  const yawRef = useRef(0);
+  const pitchRef = useRef(0);
 
-const ALTITUDE_BUMP_KM = 2000;
+  const lookDist = 2.4;               
+  const baseYOffset = 0.2;        
+  const pitchNeutralDeg = -12;   
 
-function Earth({position}){
-  const root=useRef(); 
-  const {scene,animations}=useGLTF(`${import.meta.env.BASE_URL}earth.glb`);
-  const model=useMemo(()=>SkeletonUtils.clone(scene),[scene]);
-  useEffect(()=>{
-    if(!root.current) return;
-    const box=new THREE.Box3().setFromObject(model);
-    const size=box.getSize(new THREE.Vector3());
-    const s=EARTH_TARGET_DIAMETER/(Math.max(size.x,size.y,size.z)||1);
-    root.current.scale.setScalar(s);
-  },[model]);
-  const {actions}=useAnimations(animations,model);
-  useEffect(()=>{Object.values(actions||{}).forEach(a=>a.reset().setLoop(THREE.LoopRepeat,Infinity).play());},[actions]);
-  useFrame((_,dt)=>{if(!actions||Object.keys(actions).length===0){if(root.current) root.current.rotation.y+=EARTH_SPIN_SPEED*dt;}});
-  useEffect(()=>{model.traverse(o=>{if(o.isMesh){o.castShadow=o.receiveShadow=true;o.frustumCulled=false;}});},[model]);
-  const tilt=[EARTH_TILT_AXIS==="x"?toRad(EARTH_TILT_DEG):0,EARTH_TILT_AXIS==="y"?toRad(EARTH_TILT_DEG):0,EARTH_TILT_AXIS==="z"?toRad(EARTH_TILT_DEG):0];
-  return <group ref={root} position={position.toArray()}><group rotation={tilt}><primitive object={model}/></group></group>;
-}
+  const curDir = useRef(new THREE.Vector3(0, 0, -1));
+  const lerpFactor = 0.15;
 
-function CupolaModel(){ const {scene}=useGLTF(`${import.meta.env.BASE_URL}cupola.glb`); return <primitive object={scene} scale={2}/>;}
+ useEffect(() => {
+    camera.position.copy(camPos);
+    camera.fov = 80;
+    camera.updateProjectionMatrix();
 
-function CupolaISS({earthPos, scaleKmToScene, states, controlsRef}) {
-  const group = useRef();
-  const { camera } = useThree();
+    const sensitivity = 0.0025;
+    let lastX = null, lastY = null;
 
-  const qPre = useMemo(()=>{
-    const e = new THREE.Euler(toRad(CUPOLA_PRE_PITCH_DEG), toRad(CUPOLA_PRE_YAW_DEG), toRad(CUPOLA_PRE_ROLL_DEG), "XYZ");
-    return new THREE.Quaternion().setFromEuler(e);
-  },[]);
+    const onMove = (e) => {
+      if (lastX === null) { lastX = e.clientX; lastY = e.clientY; return; }
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
 
-  const qTipAlign = useMemo(()=>{
-    const tipLocal = TIP_AXIS === "y" ? new THREE.Vector3(0,1,0) : new THREE.Vector3(0,0,1);
-    return new THREE.Quaternion().setFromUnitVectors(tipLocal, new THREE.Vector3(0,0,1));
-  },[]);
+      yawRef.current   += dx * sensitivity;
+      pitchRef.current += -dy * sensitivity;
 
-const placedOnce = useRef(false);
+      const maxPitch = THREE.MathUtils.degToRad(70);
+      pitchRef.current = Math.max(-maxPitch, Math.min(maxPitch, pitchRef.current));
+    };
 
-  useFrame(()=>{
-    if(!states || !states.length || !group.current) return;
-    const now = new Date();
-    const { r, v } = interpRV(states, now);
+    const onLeave = () => { lastX = null; lastY = null; };
+    gl.domElement.addEventListener("mousemove", onMove);
+    gl.domElement.addEventListener("mouseleave", onLeave);
+    return () => {
+      gl.domElement.removeEventListener("mousemove", onMove);
+      gl.domElement.removeEventListener("mouseleave", onLeave);
+    };
+  }, [camera, gl]);
 
-    const z = r.clone().multiplyScalar(-1).normalize();
-    const y = z.clone().cross(v).normalize();
-    const x = y.clone().cross(z).normalize();
+  useFrame(() => {
+    const yaw = yawRef.current;
+    const pitch = pitchRef.current + THREE.MathUtils.degToRad(pitchNeutralDeg);
 
-    const mLVLH = new THREE.Matrix4().makeBasis(x, y, z);
-    const qLVLH = new THREE.Quaternion().setFromRotationMatrix(mLVLH);
-    const qRollFix = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), toRad(CUPOLA_ROLL_FIX_DEG));
-
-    const rDraw = r.clone().setLength(r.length() + ALTITUDE_BUMP_KM);
-    const posScene = rDraw.multiplyScalar(scaleKmToScene);
-    
-    const worldPos = new THREE.Vector3(
-      earthPos.x + posScene.x,
-      earthPos.y + posScene.y,
-      earthPos.z + posScene.z
+    const targetDir = new THREE.Vector3(
+      Math.sin(yaw) * Math.cos(pitch),
+      Math.sin(pitch),
+      -Math.cos(yaw) * Math.cos(pitch)
     );
 
-    group.current.position.copy(worldPos);
-    group.current.quaternion.copy(qLVLH).multiply(qTipAlign).multiply(qRollFix).multiply(qPre);
+    curDir.current.lerp(targetDir, lerpFactor);
 
-    if(!placedOnce.current){
-      const tipDirWorld = new THREE.Vector3(0,0,1).applyQuaternion(group.current.quaternion);
-      const upWorld     = new THREE.Vector3(0,1,0).applyQuaternion(group.current.quaternion);
-      const camPos = worldPos.clone()
-        .add(tipDirWorld.clone().multiplyScalar(CAM_BACK))
-        .add(upWorld.clone().multiplyScalar(CAM_UP));
-      camera.position.copy(camPos);
-      camera.lookAt(worldPos.clone().add(tipDirWorld));
-      if(controlsRef?.current){
-        controlsRef.current.target.copy(worldPos.clone().add(tipDirWorld));
-        controlsRef.current.update();
-      }
-      placedOnce.current = true;
-    }
+    camera.position.copy(camPos);
+    const look = new THREE.Vector3().copy(camPos).add(
+      new THREE.Vector3(
+        curDir.current.x * lookDist,
+        curDir.current.y * lookDist + baseYOffset,
+        curDir.current.z * lookDist
+      )
+    );
+    camera.lookAt(look);
   });
 
-  return <group ref={group}><CupolaModel/></group>;
+  return null;
 }
 
-export default function CupolaScene(){
-  const controls = useRef();
-  const [earthPos] = useState(() => EARTH_ABS_POS.clone());
-  const scaleKmToScene = useMemo(() => (EARTH_TARGET_DIAMETER / 2) / 6371, []);
+function CupolaModel() {
+  const { scene } = useGLTF("/cupola.glb");
+  const ref = useRef();
 
-  const OEM_FILES = [
-    "iss/ISS.OEM_J2K_EPH22.02.13.xml",
-    "iss/ISS.OEM_J2K_EPH22.02.15.xml",
-    "iss/ISS.OEM_J2K_EPH22.02.18.xml",
-    "iss/ISS.OEM_J2K_EPH22.02.20.xml",
-  ];
-  const states = useOEMsMergedPlusGemini(OEM_FILES, 180);
+  const euler = new THREE.Euler(
+    THREE.MathUtils.degToRad(CUPOLA_PRE_PITCH_DEG),
+    THREE.MathUtils.degToRad(CUPOLA_PRE_YAW_DEG),
+    THREE.MathUtils.degToRad(CUPOLA_PRE_ROLL_DEG + CUPOLA_ROLL_FIX_DEG),
+    "YXZ"
+  );
+  scene.rotation.copy(euler);
+
+  return <primitive ref={ref} object={scene} scale={[1, 1, 1]} />;
+}
+useGLTF.preload("/cupola.glb");
+
+function Earth() {
+  const { scene } = useGLTF("/earth.glb");
+  const ref = useRef();
 
   useEffect(() => {
-    if (controls.current) {
-      controls.current.enableRotate = true;
-      controls.current.enablePan = false;
-      controls.current.enableZoom = false;
-      controls.current.minPolarAngle = Math.PI / 3.5;
-      controls.current.maxPolarAngle = Math.PI / 1.8;
-      controls.current.minAzimuthAngle = -Math.PI / 4.5;
-      controls.current.maxAzimuthAngle = Math.PI / 4.5;
-      controls.current.enableDamping = true;
-      controls.current.dampingFactor = 0.08;
-      controls.current.rotateSpeed = 0.5;
+    if (ref.current) {
+      ref.current.position.set(0, 1.2, -10);
+      ref.current.scale.set(2, 2, 2);
     }
   }, []);
 
- return (
-    <div style={{ width: "100vw", height: "100vh", background: "#000" }}>
-      <Canvas
-        camera={{ position: [0,0,60], fov: 55, near: 0.1, far: 20000 }}
-        gl={{ logarithmicDepthBuffer: true }}
-        shadows
-        onCreated={({gl})=>{
-          gl.setClearColor("#000",1);
-          gl.outputColorSpace = THREE.SRGBColorSpace;
-          gl.toneMapping = THREE.NoToneMapping;
-          gl.physicallyCorrectLights = true;
-          gl.shadowMap.enabled = true;
-          gl.shadowMap.type = THREE.PCFSoftShadowMap;
-        }}
-      >
-        <Stars radius={4000} depth={200} count={15000} factor={90} saturation={1} fade speed={4} />
-        <ambientLight intensity={0.6}/>
-        <hemisphereLight args={["#fff","#667",0.6]}/>
-        <directionalLight position={[300,500,200]} intensity={2.0} color="#fffbe6" castShadow/>
-        <pointLight position={[-120,-40,-80]} intensity={8} distance={1000} decay={2} color="#88bbff"/>
+  useFrame(() => {
+    if (ref.current) {
+      ref.current.rotation.y += 0.0005;
+    }
+  });
 
-        <Environment preset="studio" background={false} intensity={0.25}>
-          <Lightformer form="rect" intensity={1.2} color="#aecdff" scale={[400,120,1]} position={[0,300,0]} />
-          <Lightformer form="rect" intensity={0.9} color="#cfe0ff" scale={[260,90,1]} position={[260,210,0]} rotation={[0,-Math.PI/8,0]}/>
-          <Lightformer form="rect" intensity={0.9} color="#cfe0ff" scale={[260,90,1]} position={[-260,210,0]} rotation={[0,Math.PI/8,0]}/>
-        </Environment>
-       <Suspense fallback={<LoaderOverlay/>}>
-          <Earth position={earthPos}/>
-          {states && (
-            <>
-              <GroundTrack earthPos={earthPos} scaleKmToScene={scaleKmToScene} states={states}/>
-              <CupolaISS earthPos={earthPos} scaleKmToScene={scaleKmToScene} states={states} controlsRef={controls}/>
-            </>
-          )}
+  return <primitive ref={ref} object={scene} />;
+}
+useGLTF.preload("/earth.glb");
+
+export default function Cupola() {
+  return (
+    <div className="fullscreen-canvas">
+      <Canvas shadows camera={{ fov: 75, near: 0.1, far: 1000 }}>
+        <Suspense fallback={<Html center>Loading…</Html>}>
+          <FixedCameraInside />
+          <ambientLight intensity={0.4} />
+          <Stars radius={200} depth={60} count={10000} factor={4} fade />
+          <Environment preset="night" background />
+          <CupolaModel />
+          <Earth />
         </Suspense>
-
-        <OrbitControls ref={controls}/>
       </Canvas>
     </div>
   );
 }
-
