@@ -1,6 +1,7 @@
-import React, { useState, useRef } from "react";
+// src/App.jsx
+import React, { useState } from "react";
 import StartScreen from "./components/StartScreen.jsx";
-import StageLayout from "./components/StageLayout.jsx";
+import IntroScreen from "./components/introScreen.jsx";
 import Stage1 from "./components/stages/Stage1.jsx";
 import Stage2 from "./components/stages/Stage2.jsx";
 import Stage3 from "./components/stages/Stage3.jsx";
@@ -9,16 +10,22 @@ import Cupola from "./components/stages/Cupola.jsx";
 export default function App() {
   const [scene, setScene] = useState("splash");
   const [stage, setStage] = useState("stage1");
-  const stageRef = useRef(null);
+  const rootClass = scene === "stage" ? "stage-root" : "";
 
-  const stageMap = {
-    stage1: <Stage1 ref={stageRef} />,
-    stage2: <Stage2 ref={stageRef} />,
-    stage3: <Stage3 ref={stageRef} />,
-    cupola: <Cupola ref={stageRef} />,
+  const renderStage = () => {
+    switch (stage) {
+      case "stage1":
+        return <Stage1 />;
+      case "stage2":
+        return <Stage2 onComplete={() => setStage("stage3")} />;
+      case "stage3":
+        return <Stage3 onEnter={() => setStage("cupola")} />;
+      case "cupola":
+        return <Cupola />;
+      default:
+        return null;
+    }
   };
-
-  const rootClass = scene === "stage" && stage === "stage3" ? "stage-stage3" : "";
 
   return (
     <div className={rootClass}>
@@ -26,24 +33,16 @@ export default function App() {
         <StartScreen
           onStart={(selected) => {
             setStage(selected || "stage1");
-            setScene("stage");
+            setScene("intro");
           }}
-          onStage={(s) => {
+          onJump={(s) => {
             setStage(s);
-            setScene("stage");
-          }}
-          onCupola={() => {
-            setStage("cupola");
             setScene("stage");
           }}
         />
       )}
-
-      {scene === "stage" && (
-        <>
-          {stageMap[stage] || null}
-        </>
-      )}
+      {scene === "intro" && <IntroScreen onFinish={() => setScene("stage")} />}
+      {scene === "stage" && renderStage()}
     </div>
   );
 }

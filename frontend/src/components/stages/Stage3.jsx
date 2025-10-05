@@ -1,267 +1,301 @@
-import React, { Suspense, useEffect, useRef, useState } from "react"
-import { Canvas, useFrame, useThree } from "@react-three/fiber"
-import { PointerLockControls, Environment, useGLTF } from "@react-three/drei"
-import * as THREE from "three"
-import useVerticalHydroReal from "../../physics/useVerticalHydroReal"
-import { buildEmuNblConfig } from "../../physics/nasaPresets"
-import "./Stage3.css"
+// src/components/stages/Stage3.jsx
+import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import { Environment, useGLTF, useAnimations } from "@react-three/drei";
+import * as THREE from "three";
+import { SimProvider, useSim } from "../../common/SimContext";
+import StageShell from "../../common/StageShell";
+import HUD from "../../common/HUD";
+import useHydroMovementReal from "../../physics/useHydroMovementReal";
+import useVerticalHydroReal from "../../physics/useVerticalHydroReal";
+import { HYDRO_CONFIG } from "../../physics/hydroConfig";
+import { autoGenerateLights } from "../../assets/AutoLightGenarator.js";
+import { WaterController } from '../../assets/WaterShade.js';
 
-useGLTF.preload("/pool.glb")
+useGLTF.preload("/pool.glb");
 
-const SPAWN_POS = new THREE.Vector3(-1.02, 1.75, 15.06)
-const RING_POS = new THREE.Vector3(-5.489, 0, -7.946)
-const RING_COLOR = "#ff3030"
-const pad = 0.25
+const SPAWN_POS = new THREE.Vector3(-1.02, 1.75, 15.06);
+const PLAYER_HEIGHT = 1.75;
+const PLAYER_RADIUS = 0.38;
+const HEAD_OFFSET = PLAYER_HEIGHT * 0.5;
+const CAM_MIN_Y = 1.75;
+const PAD = 0.01;
+const RING_POS = new THREE.Vector3(-5.489, 0, -7.946);
+const TRIGGER_DISTANCE = 3.0;
 
-function useEdgeE() {
-  const eRef = useRef(false)
-  const prev = useRef(false)
-  useEffect(() => {
-    const d = (e) => { if (e.code === "KeyE") { eRef.current = true; e.preventDefault() } }
-    const u = (e) => { if (e.code === "KeyE") eRef.current = false }
-    window.addEventListener("keydown", d, { passive: false })
-    window.addEventListener("keyup", u, { passive: false })
-    return () => { window.removeEventListener("keydown", d); window.removeEventListener("keyup", u) }
-  }, [])
-  return () => {
-    const now = eRef.current, was = prev.current
-    prev.current = now
-    return now && !was
-  }
+function isColliderNode(o) {
+  const n = (o.name || "").toLowerCase();
+  return n.includes("collision") || n.includes("collider") || n.startsWith("col_") || o.userData?.collider === true;
 }
 
-const customColliderGeometry = new THREE.BoxGeometry(4, 4, 0.5)
-const customColliderMatrix = new THREE.Matrix4().makeTranslation(-5.489, 0, -8.0)
+function isSpaceshipNode(o) {
+  const name = (o.name || "").toLowerCase();
+  const mat = (o.material?.name || "").toLowerCase();
+  const uvUD = (o.userData?.uv || "").toLowerCase();
+  const tag = (o.userData?.tag || "").toLowerCase();
+  return name.includes("spaceship") || mat.includes("spaceship") || uvUD === "spaceship" || tag === "spaceship";
+}
 
-function Stage3Inner({ setWaterUI, onPositionUpdate }) {
-  const { camera, gl, scene } = useThree()
-  const gltf = useGLTF("/pool.glb")
-  const poolRef = useRef()
-  const mixerRef = useRef(null)
-  const actionsRef = useRef({})
-  const [ready, setReady] = useState(false)
-  const [colliderData, setColliderData] = useState([])
-
-  const worldBox = useRef(new THREE.Box3())
-  const ceilY = useRef(12)
-  const doorState = useRef("CLOSED")
-  const busy = useRef(false)
-  const edgeE = useEdgeE()
-
-  const sim = useVerticalHydroReal(
-    buildEmuNblConfig({
-      startX: SPAWN_POS.x,
-      startY: SPAWN_POS.y,
-      startZ: SPAWN_POS.z,
-      minY: 1.75,
-      colliders: colliderData,
-    })
-  )
-
-  const forward = new THREE.Vector3()
-  const right = new THREE.Vector3()
-  const up = new THREE.Vector3(0, 1, 0)
-
-  const norm = (n) => n.toLowerCase().replace(/^.*[|:\/\\]+/, "").replace(/\s+/g, "").trim()
-  const doorKeysRef = useRef({ open: null, opened: null, close: null, closed: null })
-
-  const buildActions = () => {
-    const mixer = new THREE.AnimationMixer(poolRef.current)
-    mixerRef.current = mixer
-    const map = {}
-    for (const clip of gltf.animations || []) {
-      const key = norm(clip.name)
-      const a = mixer.clipAction(clip, poolRef.current)
-      a.clampWhenFinished = true
-      a.enabled = true
-      a.stop()
-      a.time = 0
-      map[key] = a
-    }
-    actionsRef.current = map
-    const getFirst = (...names) => names.map((n) => map[n]).find(Boolean) || null
-    doorKeysRef.current = {
-      open: getFirst("open", "dooropen"),
-      opened: getFirst("opened", "dooropened"),
-      close: getFirst("close", "doorclose"),
-      closed: getFirst("closed", "doorclosed"),
-    }
-  }
-
-  const stopAll = () => { Object.values(actionsRef.current).forEach((a) => { if (a) { a.stop(); a.enabled = false } }) }
-  const setPoseEnd = (action) => {
-    if (!action) return
-    stopAll()
-    action.enabled = true
-    action.reset()
-    action.setLoop(THREE.LoopOnce, 1)
-    action.play()
-    action.time = Math.max(0, (action.getClip().duration || 0) - 1e-4)
-    action.paused = true
-    action.setEffectiveWeight(1)
-    action.setEffectiveTimeScale(0)
-    if (mixerRef.current) mixerRef.current.update(0)
-  }
-  const playOnce = (action) => new Promise((res) => {
-    if (!action) { res(); return }
-    stopAll()
-    action.enabled = true
-    action.reset()
-    action.setLoop(THREE.LoopOnce, 1)
-    action.setEffectiveTimeScale(1)
-    action.setEffectiveWeight(1)
-    action.play()
-    const onFinish = (e) => {
-      if (e.action === action) {
-        mixerRef.current.removeEventListener("finished", onFinish)
-        res()
-      }
-    }
-    mixerRef.current.addEventListener("finished", onFinish)
-  })
+function Pool({ onReady }) {
+  const group = useRef();
+  const { scene, animations } = useGLTF("/pool.glb");
+  useEffect(() => {
+    autoGenerateLights(
+        scene, 
+        2,            // offset
+        Math.PI / 6,  // angle
+        0.5           // penumbra
+    );
+}, [scene]);
+  const { actions, mixer } = useAnimations(animations, group);
+  const readyOnce = useRef(false);
 
   useEffect(() => {
-    const s = gltf.scene
-    poolRef.current = s
-    s.updateMatrixWorld(true)
-    const colliders = []
-    s.traverse((o) => {
-      if (!o.isMesh) return
-      const n = (o.name || "").toLowerCase()
-      const c = o.material?.color
-      const m = c && Math.abs(c.r - 1) + Math.abs(c.g - 0) + Math.abs(c.b - 1) < 0.4
-      const isCollider = n.includes("collider") || n.includes("collision") || m
-      if (isCollider) {
-        if (o.geometry.isBufferGeometry) {
-          colliders.push({ geometry: o.geometry, matrix: o.matrixWorld.clone() })
+    if (readyOnce.current) return;
+    scene.traverse((o) => {
+      if (!o.isMesh) return;
+      const nm = (o.name || "").toLowerCase();
+      if (isColliderNode(o) || nm.includes("nasa") || nm.includes("pgt")) o.visible = false;
+    });
+    scene.updateMatrixWorld(true);
+    let waterNode = null;
+    scene.traverse((o) => {
+      if (!o.isMesh) return;
+      if ((o.name || "").toLowerCase() === "water") waterNode = o;
+    });
+    let xzBounds, yBounds;
+    if (waterNode) {
+      const wb = new THREE.Box3().setFromObject(waterNode);
+      xzBounds = { minX: wb.min.x + PAD, maxX: wb.max.x - PAD, minZ: wb.min.z + PAD, maxZ: wb.max.z - PAD };
+      yBounds = { headMin: wb.min.y + PAD + HEAD_OFFSET, headMax: wb.max.y - PAD };
+    } else {
+      const world = new THREE.Box3().setFromObject(scene);
+      xzBounds = { minX: world.min.x + PAD, maxX: world.max.x - PAD, minZ: world.min.z + PAD, maxZ: world.max.z - PAD };
+      yBounds = { headMin: world.min.y + PAD + HEAD_OFFSET, headMax: world.max.y - PAD };
+    }
+    const spaceshipBoxes = [];
+    scene.traverse((o) => {
+      if (!o.isMesh) return;
+      if (!isSpaceshipNode(o)) return;
+      o.updateWorldMatrix(true, true);
+      spaceshipBoxes.push(new THREE.Box3().setFromObject(o));
+    });
+    onReady({ xzBounds, yBounds, spaceshipBoxes, actions, mixer });
+    readyOnce.current = true;
+  }, [scene, onReady, actions, mixer]);
+
+  return <group ref={group}><primitive object={scene} /></group>;
+}
+
+function expandBox(box, r, halfH) {
+  return new THREE.Box3(
+    new THREE.Vector3(box.min.x - r, box.min.y - halfH, box.min.z - r),
+    new THREE.Vector3(box.max.x + r, box.max.y + halfH, box.max.z + r)
+  );
+}
+function inside(p, b) {
+  return p.x > b.min.x && p.x < b.max.x && p.y > b.min.y && p.y < b.max.y && p.z > b.min.z && p.z < b.max.z;
+}
+function collides(centerPos, boxes, radius, halfH) {
+  for (let i = 0; i < boxes.length; i++) {
+    if (inside(centerPos, expandBox(boxes[i], radius, halfH))) return true;
+  }
+  return false;
+}
+function clampXZInside(center, xz, radius) {
+  center.x = Math.min(Math.max(center.x, xz.minX + radius), xz.maxX - radius);
+  center.z = Math.min(Math.max(center.z, xz.minZ + radius), xz.maxZ - radius);
+  return center;
+}
+function blockBySpaceship(cur, proposed, boxes, radius, halfH) {
+  const out = cur.clone();
+  const tryX = new THREE.Vector3(proposed.x, cur.y, cur.z);
+  if (!collides(tryX, boxes, radius, halfH)) out.x = proposed.x; else out.x = cur.x;
+  const tryZ = new THREE.Vector3(out.x, cur.y, proposed.z);
+  if (!collides(tryZ, boxes, radius, halfH)) out.z = proposed.z; else out.z = cur.z;
+  const tryY = new THREE.Vector3(out.x, proposed.y, out.z);
+  if (!collides(tryY, boxes, radius, halfH)) out.y = proposed.y; else out.y = cur.y;
+  return out;
+}
+
+function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
+  const { camera, gl } = useThree();
+  const { posRef, ballast, setBallast, setStageText } = useSim();
+  const rig = useRef(null);
+  const keys = useRef({});
+  const headYRef = useRef(SPAWN_POS.y);
+  const vyRef = useRef(0);
+  const tRef = useRef(0);
+  const hydroMove = useHydroMovementReal(HYDRO_CONFIG);
+  const verticalMove = useVerticalHydroReal(HYDRO_CONFIG);
+  const ready = useRef(false);
+  const halfH = PLAYER_HEIGHT * 0.5;
+  const headWorld = useRef(new THREE.Vector3()).current;
+  const phaseRef = useRef("idle");
+
+  const show = (text) => setStageText(`Hatch Ingress Training\n\n${text}`);
+
+  useEffect(() => {
+    if (!rig.current) return;
+    const startCenter = new THREE.Vector3(SPAWN_POS.x, SPAWN_POS.y - HEAD_OFFSET, SPAWN_POS.z);
+    clampXZInside(startCenter, xzBounds, PLAYER_RADIUS);
+    headYRef.current = Math.max(startCenter.y + HEAD_OFFSET, CAM_MIN_Y);
+    rig.current.position.copy(startCenter);
+    camera.position.set(0, HEAD_OFFSET, 0);
+    rig.current.add(camera);
+    show("Move: WASD | Buoyancy: E/R | Action: F near red ring\nApproach and begin the training sequence.");
+    ready.current = true;
+  }, [xzBounds, setStageText, camera]);
+
+  useEffect(() => {
+    const dom = gl.domElement;
+    dom.tabIndex = 0;
+    dom.style.outline = "none";
+    const focus = () => dom.focus();
+    dom.addEventListener("pointerdown", focus);
+
+    const kd = (e) => {
+      keys.current[e.code] = true;
+      if (e.code === "KeyE") setBallast((v) => Math.max(0, v - 1));
+      if (e.code === "KeyR") setBallast((v) => v + 1);
+      if (e.code === "KeyF") {
+        camera.getWorldPosition(headWorld);
+        const dist = headWorld.distanceTo(RING_POS);
+        if (dist > TRIGGER_DISTANCE) return;
+
+        if (phaseRef.current === "idle") {
+          phaseRef.current = "brief";
+          show("Why this matters:\n• Prevents entanglement & pressure-door hazards\n• Builds precise buoyancy & body alignment\n• Reinforces coordination\n\nPress F to continue");
+          return;
+        }
+        if (phaseRef.current === "brief") {
+          phaseRef.current = "ready";
+          show("Approach the red ring and stabilize within 3m\nTrim neutral with E/R, hands clear of hinges\n\nPress F to open the hatch");
+          return;
+        }
+        if (phaseRef.current === "ready") {
+          const openA = poolAnim?.actions?.open || poolAnim?.actions?.Open;
+          const openedA = poolAnim?.actions?.opened || poolAnim?.actions?.Opened;
+          if (openA) {
+            phaseRef.current = "opening";
+            show("Hatch opening in progress...\nHold position and remain centered.");
+            openA.reset();
+            openA.clampWhenFinished = true;
+            openA.setLoop(THREE.LoopOnce, 1);
+            openA.play();
+            const onFinished = () => {
+              if (openedA) {
+                openedA.reset();
+                openedA.clampWhenFinished = true;
+                openedA.setLoop(THREE.LoopOnce, 1);
+                openedA.play();
+              }
+              show("You have successfully completed the Hatch Ingress Training!\nWell done, astronaut!");
+              poolAnim?.mixer?.removeEventListener("finished", onFinished);
+              setTimeout(() => onEnter && onEnter(), 3000);
+            };
+            poolAnim?.mixer?.addEventListener("finished", onFinished);
+          } else {
+            show("You have successfully completed the Hatch Ingress Training!\nWell done, astronaut!");
+            setTimeout(() => onEnter && onEnter(), 3000);
+          }
         }
       }
-    })
-    const combined = [...colliders, { geometry: customColliderGeometry, matrix: customColliderMatrix }]
-    setColliderData(combined)
-    worldBox.current.setFromObject(s)
-    ceilY.current = worldBox.current.max.y - pad
-    camera.position.copy(SPAWN_POS)
-    const dom = gl.domElement
-    const lock = () => { if (document.pointerLockElement !== dom) dom.requestPointerLock?.() }
-    dom.addEventListener("click", lock)
-    scene.fog = new THREE.FogExp2("#a3d7ff", 0.0)
-    gl.setClearColor("#87cefa", 1)
-    buildActions()
-    const { closed, close, opened, open } = doorKeysRef.current
-    if (closed) setPoseEnd(closed)
-    else if (close) setPoseEnd(close)
-    else if (opened) setPoseEnd(opened)
-    else if (open) setPoseEnd(open)
-    sim.setPosition(SPAWN_POS.x, SPAWN_POS.y, SPAWN_POS.z)
-    const kd = (e) => sim.onKeyDown(e)
-    const ku = (e) => sim.onKeyUp(e)
-    window.addEventListener("keydown", kd, { passive: false })
-    window.addEventListener("keyup", ku, { passive: false })
-    setReady(true)
+      if (/Arrow|Space/.test(e.code)) e.preventDefault();
+    };
+    const ku = (e) => (keys.current[e.code] = false);
+    document.addEventListener("keydown", kd, true);
+    document.addEventListener("keyup", ku, true);
+    const clear = () => (keys.current = {});
+    window.addEventListener("blur", clear);
     return () => {
-      dom.removeEventListener("click", lock)
-      window.removeEventListener("keydown", kd)
-      window.removeEventListener("keyup", ku)
-    }
-  }, [gltf, camera, gl, scene])
+      dom.removeEventListener("pointerdown", focus);
+      document.removeEventListener("keydown", kd, true);
+      document.removeEventListener("keyup", ku, true);
+      window.removeEventListener("blur", clear);
+    };
+  }, [gl, setBallast, poolAnim, camera, headWorld, onEnter]);
 
   useFrame((_, dt) => {
-    if (!ready) return
-    if (mixerRef.current) mixerRef.current.update(dt)
-    camera.getWorldDirection(forward)
-    forward.y = 0
-    forward.normalize()
-    right.crossVectors(forward, up).normalize()
-    const { x, y, z } = sim.step(dt, forward, right)
-    camera.position.set(x, y, z)
-    onPositionUpdate?.({ x, y, z })
-  })
-
-  useEffect(() => {
-    let cancel = false
-    const handleToggle = async () => {
-      if (!edgeE() || busy.current) return
-      busy.current = true
-      const { open, opened, close, closed } = doorKeysRef.current
-      if (doorState.current === "CLOSED") {
-        await playOnce(open)
-        if (!cancel) setPoseEnd(opened || open)
-        if (!cancel) doorState.current = "OPENED"
-      } else if (doorState.current === "OPENED") {
-        await playOnce(close)
-        if (!cancel) setPoseEnd(closed || close)
-        if (!cancel) doorState.current = "CLOSED"
-      } else if (doorState.current === "OPENING" || doorState.current === "CLOSING") {
-      } else {
-        if (doorState.current !== "OPENED") {
-          await playOnce(open)
-          if (!cancel) setPoseEnd(opened || open)
-          if (!cancel) doorState.current = "OPENED"
-        } else {
-          await playOnce(close)
-          if (!cancel) setPoseEnd(closed || close)
-          if (!cancel) doorState.current = "CLOSED"
-        }
-      }
-      setTimeout(() => { if (!cancel) busy.current = false }, 120)
-    }
-    const id = setInterval(handleToggle, 16)
-    return () => { cancel = true; clearInterval(id) }
-  }, [])
+    if (!ready.current || !rig.current) return;
+    tRef.current += dt;
+    const baseHeadMin = yBounds.headMin ?? -Infinity;
+    const baseHeadMax = yBounds.headMax ?? Infinity;
+    const headMin = Math.max(baseHeadMin, CAM_MIN_Y);
+    const headMax = baseHeadMax;
+    const vyRes = verticalMove.stepY({
+      dt,
+      y: headYRef.current,
+      vy: vyRef.current,
+      weightCount: ballast,
+      bounds: { minY: headMin, maxY: headMax },
+      speedXZ: 0,
+      t: tRef.current,
+    });
+    vyRef.current = vyRes.newVy;
+    const headTarget = THREE.MathUtils.clamp(vyRes.newY, headMin, headMax);
+    const d = hydroMove.step({ dt, camera, moveKeys: keys.current, effMass: Math.max(100, vyRes.totalMass ?? 180) });
+    const cur = rig.current.position.clone();
+    const proposed = cur.clone();
+    if (Number.isFinite(d.x)) proposed.x = cur.x + d.x;
+    if (Number.isFinite(d.y)) proposed.z = cur.z + d.y;
+    proposed.y = headTarget - HEAD_OFFSET;
+    clampXZInside(proposed, xzBounds, PLAYER_RADIUS);
+    const blocked = blockBySpaceship(cur, proposed, spaceshipBoxes, PLAYER_RADIUS, halfH);
+    rig.current.position.copy(blocked);
+    headYRef.current = blocked.y + HEAD_OFFSET;
+    posRef.current = { x: blocked.x, y: blocked.y + HEAD_OFFSET, z: blocked.z };
+  });
 
   return (
-    <>
-      <primitive ref={poolRef} object={gltf.scene} />
-      <mesh position={RING_POS} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.8, 0.02, 16, 64]} />
-        <meshBasicMaterial color={RING_COLOR} transparent opacity={0.9} />
+    <group ref={rig}>
+      <mesh visible={false}>
+        <capsuleGeometry args={[PLAYER_RADIUS, PLAYER_HEIGHT - 2 * PLAYER_RADIUS, 8, 16]} />
+        <meshBasicMaterial transparent opacity={0} />
       </mesh>
-      <mesh name="spaceship_uv_collider_visual" position={[-5.489, 0, -8.0]} rotation={[0, 0, 0]}>
-        <boxGeometry args={[4, 4, 0.5]} />
-        <meshBasicMaterial color="red" />
-      </mesh>
-    </>
-  )
+    </group>
+  );
 }
 
-export default function Stage3() {
-  const [inWater, setInWater] = useState(false)
-  const [locked, setLocked] = useState(false)
+function StageInner({ onEnter }) {
+  const [world, setWorld] = useState(null);
+  const onReady = useCallback((data) => setWorld(data), []);
   return (
-    <div style={{ position: "fixed", inset: 0, overflow: "hidden", background: "#000" }}>
-      {!locked && (
-        <div className="lock-hint" onClick={() => document.querySelector("canvas")?.dispatchEvent(new MouseEvent("click", { bubbles: true }))}>
-          클릭해서 조작 시작 (WASD, Shift, E)
-        </div>
+    <>
+    <WaterController /> 
+      <ambientLight intensity={0.6} />
+      <directionalLight position={[5, 5, 5]} intensity={1.2} />
+      <Pool onReady={onReady} />
+      {world && (
+        <Player
+          xzBounds={world.xzBounds}
+          yBounds={world.yBounds}
+          spaceshipBoxes={world.spaceshipBoxes}
+          poolAnim={{ actions: world.actions, mixer: world.mixer }}
+          onEnter={onEnter}
+        />
       )}
-      <div className="quest-panel">
-        <h3>Stage 3 — 수중 해치 조작 훈련</h3>
-        <div className="sub">현재 단계: 이동 및 해치 테스트</div>
-        <div className="quest-card hint-card">
-          <div>빨간 링으로 이동하고 E로 해치를 열고 닫아보세요</div>
-        </div>
-        <div className="quest-card status-card">
-          <div className="quest-card-title">캐릭터 좌표</div>
-          <div id="coord" className="status-info"></div>
-        </div>
-      </div>
-      {inWater && (
-        <div style={{ position:"absolute", inset:0, pointerEvents:"none", background:"radial-gradient(ellipse at 50% 20%, rgba(150,220,255,0.15) 0%, rgba(100,180,255,0.25) 60%, rgba(60,140,200,0.35) 100%)", mixBlendMode:"screen", transition:"opacity 180ms ease", opacity:1 }} />
-      )}
-      <Canvas camera={{ position: [SPAWN_POS.x, SPAWN_POS.y, SPAWN_POS.z], fov: 60 }}>
+      <mesh position={RING_POS} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.8, 0.02, 16, 64]} />
+        <meshStandardMaterial color="#ff4040" emissive="#ff4040" emissiveIntensity={1.3} roughness={0.35} />
+      </mesh>
+    </>
+  );
+}
+
+export default function Stage3({ onEnter }) {
+  return (
+    <SimProvider initialBallast={HYDRO_CONFIG.ballastKg}>
+      <StageShell
+        camera={{ position: [SPAWN_POS.x, SPAWN_POS.y, SPAWN_POS.z], fov: 75 }}
+        envPreset="warehouse"
+        title={<HUD title="Hatch Ingress Training" extra={null} />}
+      >
         <Suspense fallback={null}>
-          <Stage3Inner
-            setWaterUI={setInWater}
-            onPositionUpdate={(v) => {
-              const el = document.getElementById("coord")
-              if (el) el.innerHTML = `<div>X: ${v.x.toFixed(2)}</div><div>Y: ${v.y.toFixed(2)}</div><div>Z: ${v.z.toFixed(2)}</div>`
-            }}
-          />
-          <Environment preset="sunset" />
+          <StageInner onEnter={onEnter} />
+          <Environment preset="warehouse" />
         </Suspense>
-        <PointerLockControls onLock={() => setLocked(true)} onUnlock={() => setLocked(false)} />
-      </Canvas>
-    </div>
-  )
+      </StageShell>
+    </SimProvider>
+  );
 }

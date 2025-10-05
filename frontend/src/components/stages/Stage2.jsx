@@ -1,325 +1,367 @@
-import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import {
-  PointerLockControls,
-  Environment,
-  useGLTF,
-  useAnimations,
-} from "@react-three/drei";
+import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import { Environment, useGLTF, useAnimations } from "@react-three/drei";
 import * as THREE from "three";
+import { SimProvider, useSim } from "../../common/SimContext";
+import StageShell from "../../common/StageShell";
+import HUD from "../../common/HUD";
+import useHydroMovementReal from "../../physics/useHydroMovementReal";
 import useVerticalHydroReal from "../../physics/useVerticalHydroReal";
-import { buildEmuNblConfig } from "../../physics/nasaPresets";
-import "./Stage2.css";
+import { HYDRO_CONFIG } from "../../physics/hydroConfig";
+import { autoGenerateLights } from "../../assets/AutoLightGenarator.js";
+import { WaterController } from '../../assets/WaterShade.js';
 
 useGLTF.preload("/pool.glb");
 
-function useRepairKeyOnly() {
-  const [isRPressed, setIsRPressed] = useState(false);
+const SPAWN_POS = new THREE.Vector3(14.98, 1.75, -29.99);
+const RING_POS  = new THREE.Vector3(-1.59, 0.0, 14.89);
+const REPAIR_DISTANCE = 2.0;
 
-  useEffect(() => {
-    const down = (e) => {
-      if (e.code === "KeyR") {
-        setIsRPressed(true);
-        e.preventDefault();
-      }
-    };
-    const up = (e) => {
-      if (e.code === "KeyR") {
-        setIsRPressed(false);
-      }
-    };
-    window.addEventListener("keydown", down, { passive: false });
-    window.addEventListener("keyup", up, { passive: true });
-    return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-    };
-  }, []);
+const PLAYER_HEIGHT = 1.75;
+const PLAYER_RADIUS = 0.38;
+const HEAD_OFFSET   = PLAYER_HEIGHT * 0.5;
 
-  return isRPressed;
+const CAM_MIN_Y = 1.75;
+const PAD = 0.01;
+
+function isColliderNode(o) {
+  const n = (o.name || "").toLowerCase();
+  return n.includes("collision") || n.includes("collider") || n.startsWith("col_") || o.userData?.collider === true;
+}
+function isSpaceshipNode(o) {
+  const name = (o.name || "").toLowerCase();
+  const mat  = (o.material?.name || "").toLowerCase();
+  const uvUD = (o.userData?.uv || "").toLowerCase();
+  const tag  = (o.userData?.tag || "").toLowerCase();
+  return (
+    name.includes("spaceship") ||
+    mat.includes("spaceship")  ||
+    uvUD === "spaceship"       ||
+    tag === "spaceship"
+  );
 }
 
-function Stage2Inner({ onPositionUpdate, onRepairStart, onRepairComplete }) {
-  const { camera } = useThree();
-  const { scene: pool, animations } = useGLTF("/pool.glb");
-  const { actions, mixer } = useAnimations(animations, pool);
-
-  const [ready, setReady] = useState(false);
-  const [isRepairing, setIsRepairing] = useState(false);
-
-  const worldBox = useRef(new THREE.Box3());
-  const player = useRef(new THREE.Vector3());
-  const ceilY = useRef(12);
-  const pad = 0.25;
-  const minY = 1.75;
-
-  const isRPressed = useRepairKeyOnly();
-
-  const forward = useMemo(() => new THREE.Vector3(), []);
-  const right = useMemo(() => new THREE.Vector3(), []);
-  const up = useMemo(() => new THREE.Vector3(0, 1, 0), []);
-
-  const RING_POS = useMemo(() => new THREE.Vector3(-1.59, 0.0, 14.89), []);
-  const RING_COLOR = "#ff3030";
-  const REPAIR_DISTANCE = 2.0;
-
-  const hydro = useVerticalHydroReal(buildEmuNblConfig({ ballastKg: 5 }));
-
-  const pgtRef = useRef(null);
-  const boltRefs = useRef([]);
+function Pool({ onReady }) {
+  const group = useRef();
+  const { scene, animations } = useGLTF("/pool.glb");
 
   useEffect(() => {
-    pool.updateMatrixWorld(true);
+    autoGenerateLights(
+        scene, 
+        2,            // offset
+        Math.PI / 6,  // angle
+        0.5           // penumbra
+    );
+}, [scene]);
+  const { actions, mixer } = useAnimations(animations, group); // ✅ 애니메이션 훅
+  const readyOnce = useRef(false);
 
-    pool.traverse((o) => {
-      if (!o.isMesh && !o.isGroup) return;
-      const name = (o.name || "").toLowerCase();
-      const c = o.material?.color;
-      const isMagenta =
-        c && Math.abs(c.r - 1) + Math.abs(c.g - 0) + Math.abs(c.b - 1) < 0.4;
+  useEffect(() => {
+    if (readyOnce.current) return;
 
-      if (
-        name.includes("collider") ||
-        name.includes("collision") ||
-        isMagenta
-      ) {
-        o.visible = false;
-      }
+    scene.traverse((o) => {
+      if (!o.isMesh) return;
+      if (isColliderNode(o)) o.visible = false;
+    });
+    scene.updateMatrixWorld(true);
 
-      if (o.name === "PGT") {
-        pgtRef.current = o;
-        o.visible = false;
-        o.children.forEach((child) => {
-          child.visible = false;
-        });
-      }
-
-      if (
-        o.name === "nasa" ||
-        o.name === "nasa001" ||
-        o.name === "nasa002" ||
-        o.name === "nasa003"
-      ) {
-        boltRefs.current.push(o);
-        o.visible = false;
-      }
+    let waterNode = null;
+    scene.traverse((o) => {
+      if (!o.isMesh) return;
+      if ((o.name || "").toLowerCase() === "water") waterNode = o;
     });
 
-    worldBox.current.setFromObject(pool);
-    const center = new THREE.Vector3();
-    worldBox.current.getCenter(center);
-    ceilY.current = worldBox.current.max.y - pad;
-
-    player.current.set(center.x, minY, center.z);
-    camera.position.copy(player.current);
-
-    setReady(true);
-  }, [pool, camera]);
-
-  useEffect(() => {
-    if (pgtRef.current) {
-      pgtRef.current.visible = isRepairing;
-      pgtRef.current.children.forEach((child) => {
-        child.visible = isRepairing;
-      });
+    let xzBounds, yBounds;
+    if (waterNode) {
+      const wb = new THREE.Box3().setFromObject(waterNode);
+      xzBounds = {
+        minX: wb.min.x + PAD, maxX: wb.max.x - PAD,
+        minZ: wb.min.z + PAD, maxZ: wb.max.z - PAD,
+      };
+      yBounds = { headMin: wb.min.y + PAD + HEAD_OFFSET, headMax: wb.max.y - PAD };
+    } else {
+      const world = new THREE.Box3().setFromObject(scene);
+      xzBounds = {
+        minX: world.min.x + PAD, maxX: world.max.x - PAD,
+        minZ: world.min.z + PAD, maxZ: world.max.z - PAD,
+      };
+      yBounds = { headMin: world.min.y + PAD + HEAD_OFFSET, headMax: world.max.y - PAD };
+      console.warn("[Stage] 'water' 메쉬를 못 찾아 씬 박스를 경계로 사용합니다.");
     }
 
-    boltRefs.current.forEach((bolt) => {
-      if (bolt) {
-        bolt.visible = isRepairing;
-      }
+    const spaceshipBoxes = [];
+    scene.traverse((o) => {
+      if (!o.isMesh) return;
+      if (!isSpaceshipNode(o)) return;
+      o.updateWorldMatrix(true, true);
+      spaceshipBoxes.push(new THREE.Box3().setFromObject(o));
     });
-  }, [isRepairing]);
+
+    onReady({ xzBounds, yBounds, spaceshipBoxes, actions, mixer });
+    readyOnce.current = true;
+  }, [scene, onReady, actions, mixer]);
+
+  return (
+    <group ref={group}>
+      <primitive object={scene} />
+    </group>
+  );
+}
+
+function expandBox(box, r, halfH) {
+  return new THREE.Box3(
+    new THREE.Vector3(box.min.x - r, box.min.y - halfH, box.min.z - r),
+    new THREE.Vector3(box.max.x + r, box.max.y + halfH, box.max.z + r)
+  );
+}
+function inside(p, b) {
+  return (p.x > b.min.x && p.x < b.max.x && p.y > b.min.y && p.y < b.max.y && p.z > b.min.z && p.z < b.max.z);
+}
+function collides(centerPos, boxes, radius, halfH) {
+  for (let i = 0; i < boxes.length; i++) {
+    if (inside(centerPos, expandBox(boxes[i], radius, halfH))) return true;
+  }
+  return false;
+}
+function clampXZInside(center, xz, radius) {
+  center.x = Math.min(Math.max(center.x, xz.minX + radius), xz.maxX - radius);
+  center.z = Math.min(Math.max(center.z, xz.minZ + radius), xz.maxZ - radius);
+  return center;
+}
+function blockBySpaceship(cur, proposed, boxes, radius, halfH) {
+  const out = cur.clone();
+  const tryX = new THREE.Vector3(proposed.x, cur.y, cur.z);
+  out.x = collides(tryX, boxes, radius, halfH) ? cur.x : proposed.x;
+  const tryZ = new THREE.Vector3(out.x, cur.y, proposed.z);
+  out.z = collides(tryZ, boxes, radius, halfH) ? cur.z : proposed.z;
+  const tryY = new THREE.Vector3(out.x, proposed.y, out.z);
+  out.y = collides(tryY, boxes, radius, halfH) ? cur.y : proposed.y;
+  return out;
+}
+
+function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onComplete }) {
+  const { camera, gl } = useThree();
+  const { posRef, ballast, setBallast, setStageText } = useSim();
+  const rig = useRef(null);
+  const keys = useRef({});
+
+  const headYRef = useRef(SPAWN_POS.y);
+  const vyRef = useRef(0);
+  const tRef = useRef(0);
+
+  const hydroMove = useHydroMovementReal(HYDRO_CONFIG);
+  const verticalMove = useVerticalHydroReal(HYDRO_CONFIG);
+  const ready = useRef(false);
+  const halfH = PLAYER_HEIGHT * 0.5;
+
+  const headWorld = useRef(new THREE.Vector3()).current;
+  const tmpHead   = useRef(new THREE.Vector3()).current;
+  
+  const repairState = useRef("idle"); // idle, repairing, completed
 
   useEffect(() => {
-    const kd = (e) => hydro.onKeyDown(e);
-    const ku = (e) => hydro.onKeyUp(e);
-    window.addEventListener("keydown", kd, { passive: false });
-    window.addEventListener("keyup", ku, { passive: false });
-    return () => {
-      window.removeEventListener("keydown", kd);
-      window.removeEventListener("keyup", ku);
+    if (!rig.current) return;
+
+    const startCenter = new THREE.Vector3(SPAWN_POS.x, SPAWN_POS.y - HEAD_OFFSET, SPAWN_POS.z);
+    clampXZInside(startCenter, xzBounds, PLAYER_RADIUS);
+    headYRef.current = Math.max(startCenter.y + HEAD_OFFSET, CAM_MIN_Y);
+
+    rig.current.position.copy(startCenter);
+    camera.position.set(0, HEAD_OFFSET, 0);
+    rig.current.add(camera);
+
+     setStageText?.("Move to the red ring. Press F to repair");
+    ready.current = true;
+  }, [xzBounds, setStageText, camera]);
+
+  useEffect(() => {
+    const dom = gl.domElement;
+    dom.tabIndex = 0;
+    dom.style.outline = "none";
+    const focus = () => dom.focus();
+    dom.addEventListener("pointerdown", focus);
+
+    const kd = (e) => {
+      keys.current[e.code] = true;
+      if (e.code === "KeyE") setBallast((v) => Math.max(0, v - 1));
+      if (e.code === "KeyR") setBallast((v) => v + 1);
+
+      if (e.code === "KeyF") {
+        camera.getWorldPosition(headWorld);
+        const dist = headWorld.distanceTo(RING_POS);
+        if (dist > REPAIR_DISTANCE) return; 
+
+        const fix = poolAnim?.actions?.fix || poolAnim?.actions?.Fix;
+         if (fix) {
+           repairState.current = "repairing";
+           setStageText?.("🔧 Repairing in progress...");
+           fix.reset();
+           fix.setLoop(THREE.LoopOnce, 1);
+           fix.clampWhenFinished = true;
+           fix.fadeIn(0.15).play();
+
+           const mixer = poolAnim.mixer;
+           const onFinished = () => {
+             repairState.current = "completed";
+             setStageText?.("✅ Repair completed successfully!");
+             
+             let countdown = 3;
+             const countdownInterval = setInterval(() => {
+               if (countdown > 0) {
+                 setStageText?.(`✅ Repair completed successfully!\n\nNext stage in ${countdown}...`);
+                 countdown--;
+               } else {
+                 clearInterval(countdownInterval);
+                 if (onComplete) onComplete();
+               }
+             }, 1000);
+             
+             mixer.removeEventListener("finished", onFinished);
+           };
+           mixer.addEventListener("finished", onFinished);
+         } else {
+           repairState.current = "completed";
+           setStageText?.("✅ Repair completed successfully!");
+           
+           let countdown = 3;
+           const countdownInterval = setInterval(() => {
+             if (countdown > 0) {
+               setStageText?.(`✅ Repair completed successfully!\n\nNext stage in ${countdown}...`);
+               countdown--;
+             } else {
+               clearInterval(countdownInterval);
+               if (onComplete) onComplete();
+             }
+           }, 1000);
+         }
+      }
+
+      if (/Arrow|Space/.test(e.code)) e.preventDefault();
     };
-  }, [hydro]);
 
-  useEffect(() => {
-    if (!isRPressed) return;
-    const distance = player.current.distanceTo(RING_POS);
-    if (distance <= REPAIR_DISTANCE) {
-      setIsRepairing(true);
-      onRepairStart();
+    const ku = (e) => { keys.current[e.code] = false; };
 
-      if (actions.fix) {
-        actions.fix.setLoop(THREE.LoopOnce, 1);
-        actions.fix.clampWhenFinished = true;
-        actions.fix.reset().play();
+    document.addEventListener("keydown", kd, true);
+    document.addEventListener("keyup", ku, true);
+    const clear = () => (keys.current = {});
+    window.addEventListener("blur", clear);
 
-        const onFinished = (event) => {
-          if (event.action === actions.fix) {
-            mixer.removeEventListener("finished", onFinished);
-            setIsRepairing(false);
-            onRepairComplete();
-          }
-        };
-        mixer.addEventListener("finished", onFinished);
-      }
-    }
-  }, [isRPressed, actions, mixer, onRepairStart, onRepairComplete, RING_POS]);
+    return () => {
+      dom.removeEventListener("pointerdown", focus);
+      document.removeEventListener("keydown", kd, true);
+      document.removeEventListener("keyup", ku, true);
+      window.removeEventListener("blur", clear);
+    };
+  }, [gl, setBallast, poolAnim, setStageText, camera, headWorld]);
 
   useFrame((_, dt) => {
-    if (!ready) return;
+    if (!ready.current || !rig.current) return;
+    tRef.current += dt;
 
-    camera.getWorldDirection(forward);
-    forward.y = 0;
-    if (forward.lengthSq() === 0) forward.set(0, 0, -1);
-    forward.normalize();
-    right.copy(up).cross(forward).normalize();
+    const baseHeadMin = yBounds.headMin ?? -Infinity;
+    const baseHeadMax = yBounds.headMax ?? Infinity;
+    const headMin = Math.max(baseHeadMin, CAM_MIN_Y);
+    const headMax = baseHeadMax;
 
-    const r = hydro.step(dt, forward, right);
+    const vyRes = verticalMove.stepY({
+      dt,
+      y: headYRef.current,
+      vy: vyRef.current,
+      weightCount: ballast,
+      bounds: { minY: headMin, maxY: headMax },
+      speedXZ: 0,
+      t: tRef.current,
+    });
+    vyRef.current = vyRes.newVy;
+    let headTarget = THREE.MathUtils.clamp(vyRes.newY, headMin, headMax);
 
-    let y = r.y;
-    if (y < minY) {
-      y = minY;
-    }
-    if (y > ceilY.current) {
-      y = ceilY.current;
-    }
+    const d = hydroMove.step({
+      dt,
+      camera,
+      moveKeys: keys.current,
+      effMass: Math.max(100, vyRes.totalMass ?? 180),
+    });
 
-    const min = worldBox.current.min.clone().addScalar(pad);
-    const max = worldBox.current.max.clone().addScalar(-pad);
-    const clampedX = THREE.MathUtils.clamp(r.x, min.x, max.x);
-    const clampedZ = THREE.MathUtils.clamp(r.z, min.z, max.z);
+    const cur = rig.current.position.clone();
+    const proposed = cur.clone();
+    if (Number.isFinite(d.x)) proposed.x = cur.x + d.x;
+    if (Number.isFinite(d.y)) proposed.z = cur.z + d.y;
+    proposed.y = headTarget - HEAD_OFFSET;
 
-    player.current.set(clampedX, y, clampedZ);
-    camera.position.copy(player.current);
-    onPositionUpdate(player.current);
+    clampXZInside(proposed, xzBounds, PLAYER_RADIUS);
+    const blocked = blockBySpaceship(cur, proposed, spaceshipBoxes, PLAYER_RADIUS, halfH);
+
+    rig.current.position.copy(blocked);
+    headYRef.current = blocked.y + HEAD_OFFSET;
+    posRef.current = { x: blocked.x, y: blocked.y + HEAD_OFFSET, z: blocked.z };
+
+     tmpHead.set(blocked.x, blocked.y + HEAD_OFFSET, blocked.z);
+     const dist = tmpHead.distanceTo(RING_POS);
+     
+     if (repairState.current === "repairing") {
+       return;
+     } else if (repairState.current === "completed") {
+       return;
+     } else {
+       if (dist <= REPAIR_DISTANCE) setStageText?.("Approaching... Press F to repair");
+       else setStageText?.("Move to the red ring. Press F to repair");
+     }
   });
 
   return (
+    <group ref={rig}>
+      <mesh visible={false} position={[0, 0, 0]}>
+        <capsuleGeometry args={[PLAYER_RADIUS, PLAYER_HEIGHT - 2 * PLAYER_RADIUS, 8, 16]} />
+        <meshBasicMaterial transparent opacity={0} />
+      </mesh>
+    </group>
+  );
+}
+
+function StageInner({ onComplete }) {
+  const [world, setWorld] = useState(null);
+  const onReady = useCallback((data) => setWorld(data), []);
+  return (
     <>
-      <primitive object={pool} />
+    <WaterController /> 
+      <ambientLight intensity={0.6} />
+      <directionalLight position={[5, 5, 5]} intensity={1.2} />
+      <Pool onReady={onReady} />
+      {world && (
+        <Player
+          xzBounds={world.xzBounds}
+          yBounds={world.yBounds}
+          spaceshipBoxes={world.spaceshipBoxes}
+          poolAnim={{ actions: world.actions, mixer: world.mixer }} 
+          onComplete={onComplete}
+        />
+      )}
       <mesh position={RING_POS} rotation={[Math.PI / 2, 0, 0]}>
         <torusGeometry args={[0.8, 0.02, 16, 64]} />
-        <meshBasicMaterial color={RING_COLOR} transparent opacity={0.9} />
+        <meshStandardMaterial
+          color="#ff4040"
+          emissive="#ff4040"
+          emissiveIntensity={1.3}
+          roughness={0.35}
+        />
       </mesh>
     </>
   );
 }
 
-export default function Stage2() {
-  const [locked, setLocked] = useState(false);
-  const ctrl = useRef(null);
-  const [position, setPosition] = useState({ x: 0, y: 0, z: 0 });
-  const [stage, setStage] = useState(1);
-
-  const handlePositionUpdate = (newPosition) => {
-    setPosition({
-      x: newPosition.x.toFixed(2),
-      y: newPosition.y.toFixed(2),
-      z: newPosition.z.toFixed(2),
-    });
-  };
-
-  const handleRepairStart = () => {
-    setStage(3);
-  };
-  const handleRepairComplete = () => {
-    setStage(4);
-  };
-
-  const getStageText = () => {
-    switch (stage) {
-      case 1:
-        return "빨간 원을 찾으세요.";
-      case 2:
-        return "수리해주세요";
-      case 3:
-        return "수리 중...";
-      case 4:
-        return "수리 완료!";
-      default:
-        return "빨간 원을 찾으세요.";
-    }
-  };
-
-  const getStageTitle = () => {
-    switch (stage) {
-      case 1:
-        return "현재 단계: 탐색";
-      case 2:
-        return "현재 단계: 접근";
-      case 3:
-        return "현재 단계: 수리";
-      case 4:
-        return "현재 단계: 완료";
-      default:
-        return "현재 단계: 탐색";
-    }
-  };
-
+export default function Stage({ onComplete }) {
   return (
-    <div className="stage2-canvas">
-      {!locked && (
-        <div className="lock-hint" onClick={() => ctrl.current?.lock()}>
-          클릭해서 조작 시작 (WASD, Space, Shift, 마우스로 시점)
-        </div>
-      )}
-
-      <div className="quest-panel">
-        <h3>Stage 2 — 외벽 수리 훈련</h3>
-        <div className="sub">{getStageTitle()}</div>
-
-        <div className="quest-card purpose-card">
-          <div className="quest-card-title">훈련 목적</div>
-          <div className="purpose-info">
-            <div>우주에서의 중성부력 환경을 체험하고</div>
-            <div>우주선 외벽 수리 기술을 습득합니다.</div>
-          </div>
-        </div>
-
-        <div className="quest-card hint-card">
-          <div>수리 위치로 접근하세요</div>
-          <div className="hint-sub">{getStageText()}</div>
-        </div>
-
-        <div className="quest-card status-card">
-          <div className="quest-card-title">캐릭터 좌표</div>
-          <div className="status-info">
-            <div>X: {position.x}</div>
-            <div>Y: {position.y}</div>
-            <div>Z: {position.z}</div>
-          </div>
-        </div>
-
-        <div className="quest-card controls-card">
-          <div className="quest-card-title">조작법</div>
-          <div className="controls-info">
-            <div>WASD: 이동</div>
-            <div>마우스: 시점 조작</div>
-            <div>Space: 위로 이동</div>
-            <div>Shift: 아래로 이동</div>
-            <div>R키: 수리 시작</div>
-          </div>
-        </div>
-      </div>
-
-      <Canvas camera={{ position: [8, 2, 8], fov: 60 }}>
-        <ambientLight intensity={0.7} />
-        <directionalLight position={[8, 12, 6]} intensity={1.1} />
+    <SimProvider initialBallast={HYDRO_CONFIG.ballastKg}>
+      <StageShell
+        camera={{ position: [SPAWN_POS.x, SPAWN_POS.y, SPAWN_POS.z], fov: 75 }}
+        envPreset="warehouse"
+        title={<HUD title="Training Stage" extra={null} />}
+      >
         <Suspense fallback={null}>
-          <Stage2Inner
-            onPositionUpdate={handlePositionUpdate}
-            onRepairStart={handleRepairStart}
-            onRepairComplete={handleRepairComplete}
-          />
+          <StageInner onComplete={onComplete} />
           <Environment preset="warehouse" />
         </Suspense>
-        <PointerLockControls
-          ref={ctrl}
-          onLock={() => setLocked(true)}
-          onUnlock={() => setLocked(false)}
-        />
-      </Canvas>
-    </div>
+      </StageShell>
+    </SimProvider>
   );
 }
