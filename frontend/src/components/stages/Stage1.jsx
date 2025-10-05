@@ -429,7 +429,7 @@ function StageInner({ onDone }) {
     if (missionStage === 0) {
       // 위로 접근 중이며 충분히 가까워야 함
       const ascending = y > prevY.current && y < targetY + 0.2;
-      if (ascending && distance < 0.4) {
+      if (ascending && distance < 0.2) {
         stayRef.current += dt;
         if (stayRef.current > 0.5) {
           setStageText("✅ [Stage 1 Complete] Reached the upper target!");
@@ -451,7 +451,7 @@ function StageInner({ onDone }) {
     // 2️⃣ Stage 2: Downward (negative buoyancy)
     else if (missionStage === 1) {
       const descending = y < prevY.current && y > targetY - 0.2;
-      if (descending && distance < 0.4) {
+      if (descending && distance < 0.2) {
         stayRef.current += dt;
         if (stayRef.current > 0.5) {
           setStageText("✅ [Stage 2 Complete] Reached the lower target!");
@@ -472,7 +472,7 @@ function StageInner({ onDone }) {
 
     // 3️⃣ Stage 3: Neutral (hold steady)
     else if (missionStage === 2) {
-      const withinNeutral = distance < 0.4;
+      const withinNeutral = distance < 0.2;
       if (withinNeutral) {
         setTimer((t) => {
           const newT = t + dt;
