@@ -19,7 +19,7 @@ export default function App() {
       case "stage2":
         return <Stage2 />;
       case "stage3":
-        return <Stage3 />;
+        return <Stage3 onEnter={() => setStage("cupola")} />;
       case "cupola":
         return <Cupola />;
       default:
@@ -41,13 +41,7 @@ export default function App() {
           }}
         />
       )}
-      {scene === "intro" && (
-        <IntroScreen
-          onFinish={() => {
-            setScene("stage");
-          }}
-        />
-      )}
+      {scene === "intro" && <IntroScreen onFinish={() => setScene("stage")} />}
       {scene === "stage" && renderStage()}
     </div>
   );
