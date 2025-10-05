@@ -49,7 +49,7 @@ export default function useVerticalHydroReal(config = {}) {
       C.astronautMass +
       C.suitMass +
       C.equipmentMass +
-      Math.max(0, weightCount) * C.ballastStepKg;
+      Math.max(-10, weightCount) * C.ballastStepKg;
 
     const V_bc = (C.bcGasLitersSurface / 1000) * (C.P_surface / P);
     const freq = C.breathHz * (1 + C.breathVar * (Math.sin(t * 0.13) - 0.5));

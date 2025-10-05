@@ -37,7 +37,7 @@ export const HYDRO_CONFIG = {
   astronautMass: 78,
   suitMass: 127,
   equipmentMass: 6,
-  ballastKg: 4,
+  ballastKg: -5,
   ballastStepKg: 1,
   rigidVolume: 0.195,
   bcGasLitersSurface: 25.0,
