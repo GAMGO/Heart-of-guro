@@ -79,6 +79,10 @@ function Pool({ onReady }) {
     scene.traverse((o) => {
       if (!o.isMesh) return;
       if ((o.name || "").toLowerCase() === "water") waterNode = o;
+      const name = (o.name || "").toLowerCase();
+      if (name.includes("pgt") || name.includes("nasa")) {
+        o.visible = false;
+      }
     });
 
     let xzBounds, yBounds;
