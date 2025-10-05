@@ -98,7 +98,7 @@ function Portal() {
     });
   }, []);
   return (
-    <group ref={g} position={[RING_POS.x, RING_POS.y, RING_POS.z]}>
+    <group ref={g} position={RING_POS} rotation={[0, 0, 0]}>
       <primitive object={scene} />
     </group>
   );

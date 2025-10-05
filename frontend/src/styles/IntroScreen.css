@@ -10,7 +10,6 @@ html, body {
   background: black;
 }
 
-/* intro 전체 컨테이너 */
 .intro-container {
   position: fixed;
   top: 0;
@@ -25,7 +24,6 @@ html, body {
   z-index: 1; 
 }
 
-/* intro 배경 이미지 */
 .intro {
   position: absolute;
   top: 0;
@@ -34,7 +32,7 @@ html, body {
   height: 100vh;
   object-fit: cover;           
   object-position: center;     
-  image-rendering: pixelated;  /* 픽셀 아트 깨지지 않게 */
+  image-rendering: pixelated; 
   z-index: 1;
 }
 
@@ -50,7 +48,6 @@ html, body {
   z-index: 1;
 }
 
-/* 대사창 */
 .dialogue {
   position: absolute;
   bottom: 0;
@@ -74,7 +71,6 @@ html, body {
   font-size: 18px;
 }
 
-/* 대사 본문 */
 .dialogue-text {
   font-size: 20px;
   font-family: "Audiowide", sans-serif;
@@ -82,7 +78,6 @@ html, body {
   letter-spacing: 0.5px;
 }
 
-/* Joe 이미지 줌인 */
 .buzz_joe {
   position: absolute;
   top: 45%;
@@ -110,7 +105,6 @@ html, body {
   perspective: 1600px;
 }
 
-/* 신문이 날아와 화면을 완전히 덮는 효과 */
 @keyframes blowCover {
   0% {
     left: 40%;
@@ -133,11 +127,10 @@ html, body {
     left: 40%;
     top: -10%;
     opacity: 0.7;
-    transform: rotateY(0deg) rotateZ(0deg) scale(15) translateZ(1000px); /* 화면 완전 덮음, 그대로 정지 */
+    transform: rotateY(0deg) rotateZ(0deg) scale(15) translateZ(1000px);
   }
 }
 
-/* 블랙아웃 전환 효과 */
 .blackout {
   position: fixed;
   top: 0;
@@ -147,16 +140,15 @@ html, body {
   background: black;
   opacity: 0.7;
   animation: blackoutEffect 0.4s ease-in-out;
-  z-index: 50; /* 모든 요소 위 */
+  z-index: 50; 
 }
 
 @keyframes blackoutEffect {
   0% { opacity: 0; }
-  50% { opacity: 0.8; } /* 어두워지기 시작 */
-  100% { opacity: 1; }  /* 완전 암전 */
+  50% { opacity: 0.8; }
+  100% { opacity: 1; }  
 }
 
-/* 🧍‍♂️ 신문 덮인 Joe 이미지 */
 .joe {
   position: absolute;
   top: 45%;
