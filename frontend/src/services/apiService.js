@@ -1,6 +1,5 @@
 const API_BASE = 'http://localhost:3001/api';
 
-// 좌표 데이터 저장
 export const savePosition = async (positionData) => {
   try {
     console.log('🚀 좌표 저장 시도:', positionData);
