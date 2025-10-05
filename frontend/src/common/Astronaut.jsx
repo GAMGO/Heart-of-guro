@@ -13,14 +13,25 @@ function expandBox(box, r, hh) {
     new THREE.Vector3(box.max.x + r, box.max.y + hh * 0.6, box.max.z + r)
   );
 }
+
 function inside(p, b) {
-  return p.x > b.min.x && p.x < b.max.x && p.y > b.min.y && p.y < b.max.y && p.z > b.min.z && p.z < b.max.z;
+  return (
+    p.x > b.min.x &&
+    p.x < b.max.x &&
+    p.y > b.min.y &&
+    p.y < b.max.y &&
+    p.z > b.min.z &&
+    p.z < b.max.z
+  );
 }
+
 function clampXZ(p, world, r) {
   p.x = Math.min(Math.max(p.x, world.minX + r), world.maxX - r);
   p.z = Math.min(Math.max(p.z, world.minZ + r), world.maxZ - r);
   return p;
 }
+
+// ⛏️ 충돌 보정 (Y는 완전 차단하지 않고 살짝만 조정)
 function resolvePenetration(center, boxes, radius, halfH, maxIters = 6) {
   let pos = center.clone();
   const eps = 1e-4;
@@ -31,20 +42,18 @@ function resolvePenetration(center, boxes, radius, halfH, maxIters = 6) {
       if (!inside(pos, e)) continue;
       const dxMin = e.min.x - pos.x;
       const dxMax = e.max.x - pos.x;
-      const dyMin = e.min.y - pos.y;
-      const dyMax = e.max.y - pos.y;
       const dzMin = e.min.z - pos.z;
       const dzMax = e.max.z - pos.z;
+
+      // ✅ Y 방향은 밀어내지 않음 (부력 상승 방해 방지)
       const cand = [
         { axis: "x", v: dxMin },
         { axis: "x", v: dxMax },
-        { axis: "y", v: dyMin },
-        { axis: "y", v: dyMax },
         { axis: "z", v: dzMin },
         { axis: "z", v: dzMax },
       ].sort((a, b) => Math.abs(a.v) - Math.abs(b.v))[0];
+
       if (cand.axis === "x") pos.x += cand.v + Math.sign(cand.v) * eps;
-      if (cand.axis === "y") pos.y += cand.v + Math.sign(cand.v) * eps;
       if (cand.axis === "z") pos.z += cand.v + Math.sign(cand.v) * eps;
       pushed = true;
     }
@@ -74,86 +83,103 @@ export default function Astronaut({
   const ready = useRef(false);
   const halfH = height * 0.5;
 
+  // ✅ 초기 카메라 설정
   useEffect(() => {
-    if (!rig.current) return;
-    const cy = Math.max(spawn.y - headOffset, halfH + 1e-3);
-    rig.current.position.set(spawn.x, cy, spawn.z);
-    camera.position.set(0, headOffset, 0);
-    rig.current.add(camera);
+    if (rig.current) {
+      rig.current.position.set(spawn.x, spawn.y - headOffset, spawn.z);
+      camera.position.set(0, headOffset, 0);
+      rig.current.add(camera);
+    }
     ready.current = true;
-  }, [camera, spawn, headOffset, halfH]);
+  }, [camera, spawn, headOffset]);
 
+  // ✅ 충돌 보정 초기화
   useEffect(() => {
     if (!rig.current || colliders.length === 0) return;
-    const c = new THREE.Vector3(rig.current.position.x, rig.current.position.y, rig.current.position.z);
-    const safe = resolvePenetration(c, colliders, radius, halfH);
-    safe.y = Math.max(safe.y, halfH + 1e-3);
+    const safe = resolvePenetration(
+      rig.current.position,
+      colliders,
+      radius,
+      halfH
+    );
     rig.current.position.copy(safe);
     headYRef.current = safe.y + headOffset;
   }, [colliders, radius, halfH, headOffset]);
 
+  // ✅ 키 입력
   useEffect(() => {
     const kd = (e) => {
       keys.current[e.code] = true;
       if (e.code === "KeyE") setBallast((v) => Math.max(0, v - 1));
       if (e.code === "KeyR") setBallast((v) => v + 1);
-      if (["Space", "ShiftLeft", "ShiftRight"].includes(e.code)) e.preventDefault();
+      if (["Space", "ShiftLeft", "ShiftRight"].includes(e.code))
+        e.preventDefault();
     };
     const ku = (e) => (keys.current[e.code] = false);
-    const clearOnBlur = () => { keys.current = {}; };
-    const enableLock = () => {
-      if (gl?.domElement && document.pointerLockElement !== gl.domElement) gl.domElement.requestPointerLock();
+    const clearOnBlur = () => (keys.current = {});
+
+    const dom = gl.domElement;
+    dom.tabIndex = 0; // ✅ 포커스 가능하게
+    dom.style.outline = "none"; // 포커스시 테두리 제거
+    dom.focus(); // ✅ 즉시 포커스 부여
+
+    // ✅ 포인터락 이벤트 연결
+    const handleClick = () => {
+      if (document.pointerLockElement !== dom) dom.requestPointerLock();
     };
-    if (gl?.domElement) {
-      gl.domElement.setAttribute("tabindex", "0");
-      gl.domElement.addEventListener("click", enableLock);
-      gl.domElement.addEventListener("keydown", kd, { passive: false });
-      gl.domElement.addEventListener("keyup", ku, { passive: false });
-    }
-    document.addEventListener("keydown", kd, { passive: false });
-    document.addEventListener("keyup", ku, { passive: false });
+    dom.addEventListener("click", handleClick);
+
+    // ✅ 전역 키 입력 등록
+    window.addEventListener("keydown", kd, { passive: false });
+    window.addEventListener("keyup", ku, { passive: false });
     window.addEventListener("blur", clearOnBlur);
+
     return () => {
-      if (gl?.domElement) {
-        gl.domElement.removeEventListener("click", enableLock);
-        gl.domElement.removeEventListener("keydown", kd);
-        gl.domElement.removeEventListener("keyup", ku);
-      }
-      document.removeEventListener("keydown", kd);
-      document.removeEventListener("keyup", ku);
+      dom.removeEventListener("click", handleClick);
+      window.removeEventListener("keydown", kd);
+      window.removeEventListener("keyup", ku);
       window.removeEventListener("blur", clearOnBlur);
     };
   }, [gl, setBallast]);
 
+  // ✅ 메인 물리 업데이트
   useFrame((_, dt) => {
     if (!ready.current || !rig.current) return;
     tRef.current += dt;
 
-    const res = stepY({ dt, y: headYRef.current, vy: vyRef.current, weightCount: ballast, bounds: { minY: bounds.minY, maxY: bounds.maxY }, speedXZ: 0, t: tRef.current });
+    // ✅ 항상 맨 위쪽에서 먼저
+    const res = stepY({
+      dt,
+      y: headYRef.current,
+      vy: vyRef.current,
+      weightCount: ballast,
+      bounds: { minY: bounds.minY, maxY: bounds.maxY },
+      t: tRef.current,
+    });
+
     vyRef.current = res.newVy;
     headYRef.current = res.newY;
 
-    const d = stepXZ({ dt, camera, moveKeys: keys.current, effMass: Math.max(100, res.totalMass ?? 180) });
+    // 나머지 이동 계산
+    const d = stepXZ({
+      dt,
+      camera,
+      moveKeys: keys.current,
+      effMass: Math.max(100, res.totalMass ?? 180),
+    });
 
     let next = rig.current.position.clone();
+    if (Number.isFinite(d.x)) next.x += d.x;
+    if (Number.isFinite(d.y)) next.z += d.y;
+    clampXZ(next, bounds, radius);
 
-    if (Number.isFinite(d.x)) {
-      next.x += d.x;
-      clampXZ(next, bounds, radius);
-      next = resolvePenetration(next, colliders, radius, halfH);
-    }
-    if (Number.isFinite(d.y)) {
-      next.z += d.y;
-      clampXZ(next, bounds, radius);
-      next = resolvePenetration(next, colliders, radius, halfH);
-    }
-
-    const headTarget = Math.min(Math.max(headYRef.current, bounds.minY), bounds.maxY);
-    let centerY = headTarget - headOffset;
-    centerY = Math.max(centerY, halfH + 1e-3);
+    let centerY = Math.min(
+      Math.max(res.newY - headOffset, bounds.minY),
+      bounds.maxY
+    );
     next.y = centerY;
-    next = resolvePenetration(next, colliders, radius, halfH);
 
+    next = resolvePenetration(next, colliders, radius, halfH);
     rig.current.position.copy(next);
     posRef.current = { x: next.x, y: next.y + headOffset, z: next.z };
   });
