@@ -1,3 +1,4 @@
+// src/components/stages/Stage3.jsx
 import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Environment, useGLTF, useAnimations } from "@react-three/drei";
@@ -12,7 +13,6 @@ import useVerticalHydroReal from "../../physics/useVerticalHydroReal";
 import { HYDRO_CONFIG } from "../../physics/hydroConfig";
 
 useGLTF.preload("/pool.glb");
-useGLTF.preload("/portal.glb");
 
 const SPAWN_POS = new THREE.Vector3(-1.02, 1.75, 15.06);
 const PLAYER_HEIGHT = 1.75;
@@ -85,25 +85,6 @@ function Pool({ onReady }) {
   );
 }
 
-function Portal() {
-  const { scene } = useGLTF("/portal.glb");
-  const g = useRef();
-  useEffect(() => {
-    if (!g.current) return;
-    g.current.traverse((o) => {
-      if (o.isMesh) {
-        o.castShadow = true;
-        o.receiveShadow = true;
-      }
-    });
-  }, []);
-  return (
-    <group ref={g} position={RING_POS} rotation={[0, 0, 0]}>
-      <primitive object={scene} />
-    </group>
-  );
-}
-
 function expandBox(box, r, halfH) {
   return new THREE.Box3(
     new THREE.Vector3(box.min.x - r, box.min.y - halfH, box.min.z - r),
@@ -152,11 +133,7 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
   const holdRef = useRef(0);
   const lastPctRef = useRef(-1);
 
-  const showBlock = (title, lines = []) => {
-    const h = `【${title}】`;
-    const body = lines.map((l) => `• ${l}`).join("\n");
-    setStageText([h, body].filter(Boolean).join("\n\n"));
-  };
+  const show = (text) => setStageText(`Hatch Ingress Training\n\n${text}`);
 
   useEffect(() => {
     if (!rig.current) return;
@@ -166,12 +143,11 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
     rig.current.position.copy(startCenter);
     camera.position.set(0, HEAD_OFFSET, 0);
     rig.current.add(camera);
-    showBlock("INGRESS DRILL", [
-      "Move: WASD",
-      "Buoyancy: E/R",
-      "Action: F near the portal",
-      "Approach the portal to start",
-    ]);
+    show(
+      "External-to-Internal ingress practice.\n" +
+        "Move: WASD   Buoyancy: E/R   Action: F near the red ring.\n" +
+        "Approach the ring to begin."
+    );
     ready.current = true;
   }, [xzBounds, setStageText, camera]);
 
@@ -193,36 +169,38 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
 
         if (phaseRef.current === "idle") {
           phaseRef.current = "purpose1";
-          showBlock("WHY THIS DRILL", [
-            "Avoid snags and hinge injuries",
-            "Refine buoyancy and body alignment",
-            "Confirm comms before tight entry",
-            "Press F to continue",
-          ]);
+          show(
+            "Why this training matters:\n" +
+              "• Prevents entanglement and hinge/pressure-door injuries\n" +
+              "• Builds precise buoyancy control and body alignment\n" +
+              "• Ensures clear coordination before entering a confined module\n" +
+              "Press F to continue"
+          );
           return;
         }
 
         if (phaseRef.current === "purpose1") {
           phaseRef.current = "purpose2";
-          showBlock("CONTEXT", [
-            "Exterior → Interior transition",
-            "Hold neutral trim, minimize wake",
-            "Protect seals and mechanisms",
-            "Keep tools/tethers clear",
-            "Press F for checklist",
-          ]);
+          show(
+            "Entry context — outside to inside:\n" +
+              "• You are approaching from the exterior and transitioning through the hatch into the cabin\n" +
+              "• Maintain neutral trim, minimize wake, protect seals and mechanisms\n" +
+              "• Keep tools/tethers clear of the opening\n" +
+              "Press F for the checklist"
+          );
           return;
         }
 
         if (phaseRef.current === "purpose2") {
           phaseRef.current = "prepare";
-          showBlock("CHECKLIST", [
-            "Stabilize within 3 m of the portal",
-            "Trim neutral with E/R, square to hatch",
-            "Hands clear of hinges/seals",
-            "Path clear, comms good",
-            "Press F to move to handle",
-          ]);
+          show(
+            "Pre-ingress checklist:\n" +
+              "1) Stabilize within 3 m of the red ring\n" +
+              "2) Trim neutral with E/R and face square to the hatch\n" +
+              "3) Hands clear of hinges and seals\n" +
+              "4) Confirm path is clear and comms are good\n" +
+              "Press F to proceed to the handle"
+          );
           return;
         }
 
@@ -230,11 +208,12 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
           phaseRef.current = "handle";
           holdRef.current = 0;
           lastPctRef.current = -1;
-          showBlock("HANDLE", [
-            "Hold F for 3 s to actuate",
-            "Stay on centerline, neutral trim",
-            "Hold F now to open the hatch",
-          ]);
+          show(
+            "Handle operation:\n" +
+              "• Press and hold F for 3 seconds to actuate the handle\n" +
+              "• Do not drift — keep centerline and neutral trim\n" +
+              "Start holding F now to open the hatch"
+          );
           return;
         }
       }
@@ -246,11 +225,12 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
       if (e.code === "KeyF" && phaseRef.current === "handle") {
         holdRef.current = 0;
         lastPctRef.current = -1;
-        showBlock("HANDLE", [
-          "Hold F for 3 s to actuate",
-          "Stay centered and neutral",
-          "Hold F again to continue",
-        ]);
+        show(
+          "Handle operation:\n" +
+            "• Hold F for 3 seconds to actuate\n" +
+            "• Maintain neutral trim and stay centered\n" +
+            "Hold F again to continue"
+        );
       }
     };
 
@@ -286,8 +266,8 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
     });
 
     vyRef.current = vyRes.newVy;
-
     const headTarget = THREE.MathUtils.clamp(vyRes.newY, headMin, headMax);
+
     const d = hydroMove.step({
       dt,
       camera,
@@ -308,18 +288,21 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
     headYRef.current = blocked.y + HEAD_OFFSET;
     posRef.current = { x: blocked.x, y: blocked.y + HEAD_OFFSET, z: blocked.z };
 
-    const headWorldPos = new THREE.Vector3();
-    camera.getWorldPosition(headWorldPos);
-    const dist = headWorldPos.distanceTo(RING_POS);
+    camera.getWorldPosition(headWorld);
+    const dist = headWorld.distanceTo(RING_POS);
 
     if (phaseRef.current === "handle") {
       if (dist <= TRIGGER_DISTANCE && keys.current["KeyF"]) {
         holdRef.current += dt;
         const pct = Math.min(100, Math.floor((holdRef.current / HOLD_TIME) * 100));
         if (pct !== lastPctRef.current) {
-          const filled = Math.round((pct / 100) * 12);
-          const bar = "█".repeat(filled) + " ".repeat(12 - filled);
-          showBlock("HANDLE", [`[${bar}] ${pct}%`, "Keep holding F, stay centered"]);
+          const filled = Math.round((pct / 100) * 20);
+          const bar = "█".repeat(filled) + " ".repeat(20 - filled);
+          show(
+            "Handle operation:\n" +
+              `[${bar}] ${pct}%\n` +
+              "Keep holding F and maintain centerline"
+          );
           lastPctRef.current = pct;
         }
         if (holdRef.current >= HOLD_TIME) {
@@ -328,10 +311,11 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
           phaseRef.current = "opening";
           holdRef.current = 0;
           lastPctRef.current = -1;
-          showBlock("HATCH OPENING", [
-            "Hold position; avoid seals/hinges",
-            "Centerline only; small corrections",
-          ]);
+          show(
+            "Hatch opening sequence:\n" +
+              "• Hold position, avoid contact with seals and hinges\n" +
+              "• Follow the centerline — gentle micro-corrections only"
+          );
           if (openA) {
             openA.reset();
             openA.clampWhenFinished = true;
@@ -345,35 +329,38 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
                 openedA.play();
               }
               phaseRef.current = "ingress";
-              showBlock("INGRESS", [
-                "Glide through slowly, stay centered",
-                "Protect suit, tethers, cameras",
-                "Clear the threshold and stabilize",
-                "Training complete",
-              ]);
+              show(
+                "Ingress:\n" +
+                  "• Move through the opening slowly and stay centered\n" +
+                  "• Protect suit, tethers, and cameras\n" +
+                  "• Clear the threshold, then stabilize inside\n" +
+                  "Training complete — Congratulations on successfully finishing the Hatch Ingress Training!"
+              );
               poolAnim?.mixer?.removeEventListener("finished", onFinished);
-              setTimeout(() => onEnter && onEnter(), 2200);
+              setTimeout(() => onEnter && onEnter(), 3000);
             };
             poolAnim?.mixer?.addEventListener("finished", onFinished);
           } else {
             phaseRef.current = "ingress";
-            showBlock("INGRESS", [
-              "Glide through slowly, stay centered",
-              "Protect suit, tethers, cameras",
-              "Clear the threshold and stabilize",
-              "Training complete",
-            ]);
-            setTimeout(() => onEnter && onEnter(), 2200);
+            show(
+              "Ingress:\n" +
+                "• Move through the opening slowly and stay centered\n" +
+                "• Protect suit, tethers, and cameras\n" +
+                "• Clear the threshold, then stabilize inside\n" +
+                "Training complete — Congratulations on successfully finishing the Hatch Ingress Training!"
+            );
+            setTimeout(() => onEnter && onEnter(), 3000);
           }
         }
       } else if (holdRef.current > 0) {
         holdRef.current = 0;
         lastPctRef.current = -1;
-        showBlock("HANDLE", [
-          "Hold F for 3 s to actuate",
-          "Stay centered and neutral",
-          "Hold F again to continue",
-        ]);
+        show(
+          "Handle operation:\n" +
+            "• Hold F for 3 seconds to actuate\n" +
+            "• Maintain neutral trim and stay centered\n" +
+            "Hold F again to continue"
+        );
       }
     }
   });
@@ -408,7 +395,10 @@ function StageInner({ onEnter }) {
           <WaterController />
         </>
       )}
-      <Portal />
+      <mesh position={RING_POS} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.8, 0.02, 16, 64]} />
+        <meshStandardMaterial color="#ff4040" emissive="#ff4040" emissiveIntensity={1.3} roughness={0.35} />
+      </mesh>
     </>
   );
 }
