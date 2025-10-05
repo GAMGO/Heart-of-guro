@@ -10,11 +10,11 @@ export default function StageLayout({ current, onChangeStage, onBack, children }
   return (
     <div className="app">
       <div className="stage-header">
-        <Tab id="stage1" label="스테이지 1" />
-        <Tab id="stage2" label="스테이지 2" />
-        <Tab id="stage3" label="스테이지 3" />
-        <Tab id="cupola" label="큐폴라" />
-        <button onClick={onBack} className="stage-back">← 메인으로</button>
+        <Tab id="stage1" label="Mission 1" />
+        <Tab id="stage2" label="Mission 2" />
+        <Tab id="stage3" label="Mission 3" />
+        <Tab id="cupola" label="ISS Cupola" />
+        <button onClick={onBack} className="stage-back">← To Main</button>
       </div>
       <div className="stage-content">{children}</div>
     </div>
