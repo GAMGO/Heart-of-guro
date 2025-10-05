@@ -1,3 +1,4 @@
+// src/components/StartScreen.jsx
 import React, { useState, useEffect } from "react";
 import "../styles/StartScreen.css";
 
@@ -43,11 +44,17 @@ export default function StartScreen({ onStart, onJump }) {
 
   return (
     <div className="start-screen">
-      <button className="start-btn" onClick={() => onStart("stage")}>START</button>
-      <div className="stage-shortcuts">
-        <button onClick={() => onJump("stage")}>Stage1</button>
+      {/* 기본 시작: stage1로 인트로 → 스테이지 진입 */}
+      <button className="start-btn" onClick={() => onStart("stage1")}>START</button>
+
+      {/* 스테이지 바로 점프(스타일 클래스 .stageMap 사용) */}
+      <div className="stageMap">
+        <button onClick={() => onJump("stage1")}>Stage 1</button>
+        <button onClick={() => onJump("stage2")}>Stage 2</button>
+        <button onClick={() => onJump("stage3")}>Stage 3</button>
         <button onClick={() => onJump("cupola")}>Cupola</button>
       </div>
+
       <div className="acrostic">
         {displayedLines.map((html, i) => (
           <p key={i} dangerouslySetInnerHTML={{ __html: html }} />

@@ -1,18 +1,25 @@
+// src/App.jsx
 import React, { useState } from "react";
 import StartScreen from "./components/StartScreen.jsx";
 import IntroScreen from "./components/introScreen.jsx";
-import Stage from "./components/stages/Stage.jsx";
+import Stage1 from "./components/stages/Stage1.jsx";
+import Stage2 from "./components/stages/Stage2.jsx";
+import Stage3 from "./components/stages/Stage3.jsx";
 import Cupola from "./components/stages/Cupola.jsx";
 
 export default function App() {
   const [scene, setScene] = useState("splash");
-  const [stage, setStage] = useState("stage");
+  const [stage, setStage] = useState("stage1");
   const rootClass = scene === "stage" ? "stage-root" : "";
 
   const renderStage = () => {
     switch (stage) {
-      case "stage":
-        return <Stage />;
+      case "stage1":
+        return <Stage1 />;
+      case "stage2":
+        return <Stage2 />;
+      case "stage3":
+        return <Stage3 />;
       case "cupola":
         return <Cupola />;
       default:
@@ -25,7 +32,7 @@ export default function App() {
       {scene === "splash" && (
         <StartScreen
           onStart={(selected) => {
-            setStage(selected || "stage");
+            setStage(selected || "stage1");
             setScene("intro");
           }}
           onJump={(s) => {
