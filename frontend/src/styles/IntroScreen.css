@@ -1,41 +1,52 @@
+@import url('https://fonts.googleapis.com/css2?family=Audiowide&display=swap');
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: black;
+}
+
+/* intro 전체 컨테이너 */
 .intro-container {
   position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
-  height: 100dvh;
+  height: 100vh;
   overflow: hidden;
-  background: #000;
+  background: black;
   display: flex;
   justify-content: center;
   align-items: center;
+  z-index: 1; 
 }
 
-/* 모든 이미지에 기본 스케일 제한 */
-.intro-container img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  position: absolute;
-  inset: 0;
-  margin: auto;
-}
-
-/* 공통 페이드 인 */
-.fade-in {
-  animation: fadeIn 1.2s ease forwards;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-/* 전체 배경 이미지 */
+/* intro 배경 이미지 */
 .intro {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;           
+  object-position: center;     
+  image-rendering: pixelated;  /* 픽셀 아트 깨지지 않게 */
+  z-index: 1;
+}
+
+.back {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
   object-fit: cover;
+  object-position: center;
+  image-rendering: pixelated;
+  z-index: 1;
 }
 
 /* 대사창 */
@@ -44,45 +55,115 @@
   bottom: 0;
   left: 0;
   right: 0;
-  width: 100%;
-  /* transform: translateY(100px); */
+  height: 9%;
   background: rgba(8, 10, 16, 0.9);
   color: white;
-  padding: 20px 20px 50px;
+  padding: 35px;
   font-size: 20px;
-  font-family: "Noto Sans KR", sans-serif;
+  font-family: "Audiowide", sans-serif;
+  z-index: 10;
+  overflow: hidden;
 }
 
-/* joe 이미지 줌인 */
+.dialogue-name {
+  font-family: "Audiowide", sans-serif;
+  letter-spacing: .6px;
+  margin-bottom: 5px;
+  color: #9ab6ff;
+  font-size: 18px;
+}
+
+/* 대사 본문 */
+.dialogue-text {
+  font-size: 20px;
+  font-family: "Audiowide", sans-serif;
+  white-space: pre-line;
+  letter-spacing: 0.5px;
+}
+
+/* Joe 이미지 줌인 */
 .buzz_joe {
   position: absolute;
-  width: 70%;
-  height: auto;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%) scale(1);
-}
-
-.zoom-in {
+  top: 45%;
+  left: 65%;
+  width: 35%;
+  transform: translate(-75%, -38%) scale(1);
   animation: zoomIn 1.5s ease forwards;
+  image-rendering: pixelated;
+  opacity: 1;
+  z-index: 5;
 }
 
 @keyframes zoomIn {
-  from { transform: scale(1); }
-  to { transform: scale(1.05); } /*  너무 크지 않게 조정 */
+  from { transform: translate(-75%, -38%) scale(1); }
+  to { transform: translate(-75%, -38%) scale(1.05); }
 }
 
-/* blow 이미지 이동 */
+/* Blow 이미지 이동 */
 .blow {
+  position: fixed;
   width: 10%;
-  animation: moveAcross 3s ease forwards;
+  animation: blowCover 3.5s cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards;
+  z-index: 30;
+  transform-origin: center center;
+  perspective: 1600px;
 }
 
-.move-left-to-right {
-  animation: blowMove 2s ease-in-out forwards;
+/* 신문이 날아와 화면을 완전히 덮는 효과 */
+@keyframes blowCover {
+  0% {
+    left: 40%;
+    top: -10%;
+    opacity: 0;
+    transform: rotateY(0deg) rotateZ(-10deg) scale(0.1) translateZ(-1200px);
+  }
+
+  25% {
+    opacity: 1;
+    transform: rotateY(10deg) rotateZ(-5deg) scale(3) translateZ(-200px);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: rotateY(0deg) rotateZ(0deg) scale(8) translateZ(600px); /* 카메라 앞까지 */
+  }
+
+  100% {
+    left: 40%;
+    top: -10%;
+    opacity: 0.7;
+    transform: rotateY(0deg) rotateZ(0deg) scale(15) translateZ(1000px); /* 화면 완전 덮음, 그대로 정지 */
+  }
 }
 
-@keyframes blowMove {
-  from { left: -200px; opacity: 0; }
-  to { left: 110%; opacity: 1; }
+/* 블랙아웃 전환 효과 */
+.blackout {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: black;
+  opacity: 0.7;
+  animation: blackoutEffect 0.4s ease-in-out;
+  z-index: 50; /* 모든 요소 위 */
+}
+
+@keyframes blackoutEffect {
+  0% { opacity: 0; }
+  50% { opacity: 0.8; } /* 어두워지기 시작 */
+  100% { opacity: 1; }  /* 완전 암전 */
+}
+
+/* 🧍‍♂️ 신문 덮인 Joe 이미지 */
+.joe {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 38%;
+  transform: translate(-50%, -50%) scale(1);
+  animation: zoomIn 1.2s ease forwards;
+  image-rendering: pixelated;
+  opacity: 1;
+  z-index: 20;
 }
