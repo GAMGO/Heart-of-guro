@@ -10,7 +10,6 @@ html, body {
   background: black;
 }
 
-/* intro 전체 컨테이너 */
 .intro-container {
   position: fixed;
   top: 0;
@@ -25,7 +24,6 @@ html, body {
   z-index: 1; 
 }
 
-/* intro 배경 이미지 */
 .intro {
   position: absolute;
   top: 0;
@@ -34,7 +32,7 @@ html, body {
   height: 100vh;
   object-fit: cover;           
   object-position: center;     
-  image-rendering: pixelated;  /* 픽셀 아트 깨지지 않게 */
+  image-rendering: pixelated; 
   z-index: 1;
 }
 
