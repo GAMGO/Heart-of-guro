@@ -12,6 +12,22 @@ export default function App() {
   const [stage, setStage] = useState("stage1");
   const rootClass = scene === "stage" ? "stage-root" : "";
 
+  const renderStage = () => {
+    switch (stage) {
+      case "stage1":
+        return <Stage1 />;
+      case "stage2":
+        return <Stage2 onComplete={() => setStage("stage3")} />;
+      case "stage3":
+        return <Stage3 onEnter={() => setStage("buzz")} />;
+      case "buzz":
+        return <MonologueBuzz onDone={() => setStage("cupola")} />;
+      case "cupola":
+        return <Cupola />;
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className={rootClass}>
