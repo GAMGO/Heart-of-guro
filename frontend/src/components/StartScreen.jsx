@@ -1,4 +1,3 @@
-// src/components/StartScreen.jsx
 import React, { useState, useEffect } from "react";
 import "../styles/StartScreen.css";
 
@@ -44,7 +43,6 @@ export default function StartScreen({ onStart, onJump }) {
 
   return (
     <div className="start-screen">
-      {/* 기본 시작: stage1로 인트로 → 스테이지 진입 */}
       <button className="start-btn" onClick={() => onStart("stage1")}>START</button>
 
       <div className="acrostic">
