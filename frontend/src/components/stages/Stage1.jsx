@@ -16,7 +16,7 @@ import useHydroMovementReal from "../../physics/useHydroMovementReal";
 import useVerticalHydroReal from "../../physics/useVerticalHydroReal";
 import { HYDRO_CONFIG } from "../../physics/hydroConfig";
 import { autoGenerateLights } from "../../assets/AutoLightGenarator.js";
-import { WaterController } from '../../assets/WaterShade.js';
+import { WaterController } from "../../assets/WaterShade.js";
 
 useGLTF.preload("/pool.glb");
 
@@ -56,12 +56,12 @@ function Pool({ onReady }) {
   const { scene } = useGLTF("/pool.glb");
   useEffect(() => {
     autoGenerateLights(
-        scene, 
-        2,            // offset
-        Math.PI / 6,  // angle
-        0.5           // penumbra
+      scene,
+      2, // offset
+      Math.PI / 6, // angle
+      0.5 // penumbra
     );
-}, [scene]);
+  }, [scene]);
   const readyOnce = useRef(false);
 
   useEffect(() => {
@@ -320,7 +320,7 @@ function Player({ xzBounds, yBounds, spaceshipBoxes }) {
   );
 }
 
-function StageInner() {
+function StageInner({ onDone }) {
   const [world, setWorld] = useState(null);
   const { posRef, setStageText, setNeutralTimer } = useSim();
   const [missionStage, setMissionStage] = useState(0);
@@ -328,6 +328,7 @@ function StageInner() {
   const [timer, setTimer] = useState(0);
   const [neutralAchieved, setNeutralAchieved] = useState(false);
   const stayRef = useRef(0);
+  const prevY = useRef(0);
   // ────────────────────────────────
   // 🎲 랜덤 목표 위치 생성 함수
   // ────────────────────────────────
@@ -417,17 +418,19 @@ function StageInner() {
     const { y } = posRef.current;
     const targetY = targetPos.y;
 
-    // 🔹 1단계: 양성부력 (위로 올라가기)
-    // 🔹 1단계: 양성부력 (위로 올라가기)
+    // 📏 거리 계산
+    const distance = Math.abs(y - targetY);
+
+    // 1️⃣ Stage 1: Upward (positive buoyancy)
     if (missionStage === 0) {
-      const diff = Math.abs(targetY - y); // 🔧 절대값으로 변경
-      if (diff <= 0.6 && y >= targetY - 0.3) {
-        // 위쪽으로 향하고 있을 때만 인정
+      // 위로 접근 중이며 충분히 가까워야 함
+      const ascending = y > prevY.current && y < targetY + 0.2;
+      if (ascending && distance < 0.2) {
         stayRef.current += dt;
-        if (stayRef.current > 0.3) {
+        if (stayRef.current > 0.5) {
           setStageText("✅ [Stage 1 Complete] Reached the upper target!");
-          stayRef.current = 0;
           setMissionStage(1);
+          stayRef.current = 0;
           setNextMission(
             1,
             world.yBounds,
@@ -441,16 +444,15 @@ function StageInner() {
       }
     }
 
-    // 🔹 2단계: 음성부력 (아래로 내려가기)
+    // 2️⃣ Stage 2: Downward (negative buoyancy)
     else if (missionStage === 1) {
-      const diff = Math.abs(targetY - y);
-      if (diff < 0.4 && y > targetY) {
-        // 아래쪽으로 향하고 있을 때만 인정
+      const descending = y < prevY.current && y > targetY - 0.2;
+      if (descending && distance < 0.2) {
         stayRef.current += dt;
-        if (stayRef.current > 0.3) {
+        if (stayRef.current > 0.5) {
           setStageText("✅ [Stage 2 Complete] Reached the lower target!");
-          stayRef.current = 0;
           setMissionStage(2);
+          stayRef.current = 0;
           setNextMission(
             2,
             world.yBounds,
@@ -463,22 +465,21 @@ function StageInner() {
         stayRef.current = 0;
       }
     }
-    // 🔹 3단계: 중성부력 (1초 유지)
+
+    // 3️⃣ Stage 3: Neutral (hold steady)
     else if (missionStage === 2) {
-      const diff = Math.abs(y - targetY);
-      if (diff < 0.2) {
+      const withinNeutral = distance < 0.15;
+      if (withinNeutral) {
         setTimer((t) => {
           const newT = t + dt;
           setNeutralTimer(newT);
-
-          // ✅ newT가 1초 넘으면 즉시 클리어 메시지 출력
           if (newT >= 1 && !neutralAchieved) {
             setNeutralAchieved(true);
             setStageText(
-              "✅ [Stage 3 Complete] 1 second of perfect neutral buoyancy!"
+              "✅ [Stage 3 Complete] 30 seconds of perfect neutral buoyancy!"
             );
+            onDone();
           }
-
           return newT;
         });
       } else {
@@ -489,11 +490,14 @@ function StageInner() {
         }
       }
     }
+
+    // ✅ 마지막에 현재 높이를 prevY에 저장
+    prevY.current = y;
   });
 
   return (
     <>
-    <WaterController /> 
+      <WaterController />
       <ambientLight intensity={0.6} />
       <directionalLight position={[5, 5, 5]} intensity={1.2} />
       <Pool onReady={setWorld} />
@@ -530,7 +534,7 @@ function StageInner() {
   );
 }
 
-export default function Stage() {
+export default function Stage({ onDone }) {
   return (
     <SimProvider initialBallast={HYDRO_CONFIG.ballastKg}>
       <StageShell
@@ -539,7 +543,7 @@ export default function Stage() {
         title={<HUD title="Training Stage" extra={null} />}
       >
         <Suspense fallback={null}>
-          <StageInner />
+          <StageInner onDone={onDone} />
           <Environment preset="warehouse" />
         </Suspense>
       </StageShell>

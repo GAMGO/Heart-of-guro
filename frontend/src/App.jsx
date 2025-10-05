@@ -15,7 +15,7 @@ export default function App() {
   const renderStage = () => {
     switch (stage) {
       case "stage1":
-        return <Stage1 />;
+        return <Stage1 onDone={() => setStage("stage2")} />;
       case "stage2":
         return <Stage2 onComplete={() => setStage("stage3")} />;
       case "stage3":
