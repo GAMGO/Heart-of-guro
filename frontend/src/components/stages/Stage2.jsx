@@ -1,7 +1,7 @@
 // src/components/stages/Stage.jsx
 import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Environment, useGLTF } from "@react-three/drei";
+import { Environment, useGLTF, useAnimations } from "@react-three/drei"; // ✅ useAnimations 추가
 import * as THREE from "three";
 import { SimProvider, useSim } from "../../common/SimContext";
 import StageShell from "../../common/StageShell";
@@ -13,6 +13,7 @@ import { HYDRO_CONFIG } from "../../physics/hydroConfig";
 useGLTF.preload("/pool.glb");
 
 const SPAWN_POS = new THREE.Vector3(-1.02, 1.75, 15.06);
+const RING_POS = new THREE.Vector3(-1.59, 0.0, 14.89);
 const PLAYER_HEIGHT = 1.75;
 const PLAYER_RADIUS = 0.38;
 const HEAD_OFFSET = PLAYER_HEIGHT * 0.5;
@@ -39,8 +40,11 @@ function isSpaceshipNode(o) {
   );
 }
 
+/** ================= Pool: GLB 로드 + 애니메이션 actions 전달 ================= */
 function Pool({ onReady }) {
-  const { scene } = useGLTF("/pool.glb");
+  const group = useRef();
+  const { scene, animations } = useGLTF("/pool.glb");
+  const { actions, mixer } = useAnimations(animations, group); // ✅ 애니메이션 훅
   const readyOnce = useRef(false);
 
   useEffect(() => {
@@ -89,11 +93,16 @@ function Pool({ onReady }) {
       spaceshipBoxes.push(new THREE.Box3().setFromObject(o));
     });
 
-    onReady({ xzBounds, yBounds, spaceshipBoxes });
+    // ✅ actions/mixer도 함께 전달
+    onReady({ xzBounds, yBounds, spaceshipBoxes, actions, mixer });
     readyOnce.current = true;
   }, [scene, onReady]);
 
-  return <primitive object={scene} />;
+  return (
+    <group ref={group}>
+      <primitive object={scene} />
+    </group>
+  );
 }
 
 // AABB 확장(캡슐 반지름/반높이 고려)
@@ -139,7 +148,8 @@ function blockBySpaceship(cur, proposed, boxes, radius, halfH) {
   return out;
 }
 
-function Player({ xzBounds, yBounds, spaceshipBoxes }) {
+/** ================= Player: 기존 로직 그대로 + F키로 fix 애니메이션만 추가 ================= */
+function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim }) {
   const { camera, gl } = useThree();
   const { posRef, ballast, setBallast, setStageText } = useSim();
   const rig = useRef(null);
@@ -168,7 +178,7 @@ function Player({ xzBounds, yBounds, spaceshipBoxes }) {
     camera.position.set(0, HEAD_OFFSET, 0);
     rig.current.add(camera);
 
-    if (setStageText) setStageText("이동: WASD, 부력: E/R (water 밖 XZ 차단, spaceship 충돌 차단, 카메라 1.75m 이상)");
+    if (setStageText) setStageText("이동: WASD, 부력: E/R (T: 수리)");
     ready.current = true;
   }, [xzBounds, setStageText, camera]);
 
@@ -180,12 +190,41 @@ function Player({ xzBounds, yBounds, spaceshipBoxes }) {
     dom.addEventListener("pointerdown", focus);
 
     const kd = (e) => {
+      console.log("🔑 Key pressed:", e.code); // 디버그용
       keys.current[e.code] = true;
+
       if (e.code === "KeyE") setBallast((v) => Math.max(0, v - 1));
       if (e.code === "KeyR") setBallast((v) => v + 1);
+
+      // ✅ T키: fix 애니메이션 재생 (기존 로직 보존, 추가 동작만)
+      if (e.code === "KeyT") {
+        const fix = poolAnim?.actions?.fix;
+        if (fix) {
+          setStageText?.("🔧 수리 중...");
+          fix.reset();
+          fix.setLoop(THREE.LoopOnce, 1);
+          fix.clampWhenFinished = true;
+          fix.fadeIn(0.15).play();
+
+          const mixer = poolAnim.mixer;
+          const onFinished = () => {
+            setStageText?.("✅ 수리 완료");
+            mixer.removeEventListener("finished", onFinished);
+        };
+        mixer.addEventListener("finished", onFinished);
+        } else {
+          // 애니메이션이 없거나 이름이 다른 경우 UX만 유지
+          setStageText?.("✅ 수리 완료");
+        }
+      }
+
       if (/Arrow|Space/.test(e.code)) e.preventDefault();
     };
-    const ku = (e) => { keys.current[e.code] = false; };
+
+    const ku = (e) => { 
+      console.log("🔑 Key released:", e.code); // 디버그용
+      keys.current[e.code] = false; 
+    };
 
     document.addEventListener("keydown", kd, true);
     document.addEventListener("keyup", ku, true);
@@ -198,11 +237,17 @@ function Player({ xzBounds, yBounds, spaceshipBoxes }) {
       document.removeEventListener("keyup", ku, true);
       window.removeEventListener("blur", clear);
     };
-  }, [gl, setBallast]);
+  }, [gl, setBallast, poolAnim, setStageText]);
 
   useFrame((_, dt) => {
     if (!ready.current || !rig.current) return;
     tRef.current += dt;
+
+    // 디버그: 현재 키 상태 확인
+    const activeKeys = Object.keys(keys.current).filter(key => keys.current[key]);
+    if (activeKeys.length > 0) {
+      console.log("🎮 Active keys:", activeKeys);
+    }
 
     // --- 수직(부력/중량): 머리 높이 범위(headMin~headMax), 그리고 카메라 최소 높이 1.75 보장 ---
     const baseHeadMin = yBounds.headMin ?? -Infinity;
@@ -231,6 +276,11 @@ function Player({ xzBounds, yBounds, spaceshipBoxes }) {
       effMass: Math.max(100, vyRes.totalMass ?? 180),
     });
 
+    // 디버그: 이동 벡터 확인
+    if (d.x !== 0 || d.y !== 0) {
+      console.log("🚀 Movement vector:", { x: d.x, y: d.y });
+    }
+
     const cur = rig.current.position.clone();
     const proposed = cur.clone();
 
@@ -247,6 +297,14 @@ function Player({ xzBounds, yBounds, spaceshipBoxes }) {
     rig.current.position.copy(blocked);
     headYRef.current = blocked.y + HEAD_OFFSET; // 상태 동기화(머리 높이)
     posRef.current = { x: blocked.x, y: blocked.y + HEAD_OFFSET, z: blocked.z };
+
+    // 디버그: 최종 위치 확인
+    if (blocked.x !== cur.x || blocked.z !== cur.z) {
+      console.log("📍 Position changed:", { 
+        from: { x: cur.x, z: cur.z }, 
+        to: { x: blocked.x, z: blocked.z } 
+      });
+    }
   });
 
   return (
@@ -273,8 +331,19 @@ function StageInner() {
           xzBounds={world.xzBounds}
           yBounds={world.yBounds}
           spaceshipBoxes={world.spaceshipBoxes}
+          poolAnim={{ actions: world.actions, mixer: world.mixer }} // ✅ 애니메이션 전달
         />
       )}
+      {/* 🔴 빨간 링 (수리 목표) */}
+      <mesh position={RING_POS} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.8, 0.02, 16, 64]} />
+        <meshStandardMaterial 
+          color="#ff4040" 
+          emissive="#ff4040" 
+          emissiveIntensity={1.3} 
+          roughness={0.35} 
+        />
+      </mesh>
     </>
   );
 }
