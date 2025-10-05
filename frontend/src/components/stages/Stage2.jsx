@@ -195,7 +195,7 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim }) {
       console.log("🔑 Key pressed:", e.code); // 디버그용
       keys.current[e.code] = true;
 
-      if (e.code === "KeyE") setBallast((v) => Math.max(0, v - 1));
+      if (e.code === "KeyE") setBallast((v) => v - 1);
       if (e.code === "KeyR") setBallast((v) => v + 1);
 
       // ✅ T키: fix 애니메이션 재생 (기존 로직 보존, 추가 동작만)
