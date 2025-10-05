@@ -91,7 +91,9 @@ html, body {
   border-radius: 6px;
   cursor: pointer;
   transition: transform 0.2s ease, background 0.2s ease;
+
   margin-bottom: 50px; /* 하단 여백 */
+
   z-index: 10;
   box-shadow: 3px 4px 5px rgba(120, 166, 255, 0.9);
 }

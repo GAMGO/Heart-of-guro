@@ -33,12 +33,11 @@ export default function App() {
 
   return (
     <div className={rootClass}>
-      {/* 🎬 1️⃣ 시작 화면 */}
       {scene === "splash" && (
         <StartScreen
           onStart={(selected) => {
             setStage(selected || "stage1");
-            setScene("intro"); // ✅ Start 후 인트로로 이동
+            setScene("intro"); 
           }}
           onJump={(s) => {
             setStage(s);
@@ -47,17 +46,14 @@ export default function App() {
         />
       )}
 
-      {/* 🧍‍♂️ 2️⃣ IntroScreen (Buzz Joe의 독백 인트로) */}
       {scene === "intro" && (
-        <IntroScreen onFinish={() => setScene("beginning")} /> // ✅ 인트로 끝나면 Beginning으로
+        <IntroScreen onFinish={() => setScene("beginning")} />
       )}
 
-      {/* 📰 3️⃣ BeginningScreen (신문 등장 씬) */}
       {scene === "beginning" && (
-        <BeginningScreen onFinish={() => setScene("stage")} /> // ✅ 신문 끝나면 Stage 시작
+        <BeginningScreen onFinish={() => setScene("stage")} /> 
       )}
 
-      {/* 🚀 4️⃣ Stage 화면 */}
       {scene === "stage" && renderStage()}
     </div>
   );
