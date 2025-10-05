@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import StartScreen from "./components/StartScreen.jsx";
 import IntroScreen from "./components/IntroScreen.jsx";
 import BeginningScreen from "./components/BeginningScreen.jsx";
+import NblScreen from "./components/NblScreen";
 import Stage1 from "./components/stages/Stage1.jsx";
 import Stage2 from "./components/stages/Stage2.jsx";
 import Stage3 from "./components/stages/Stage3.jsx";
@@ -51,8 +52,13 @@ export default function App() {
       )}
 
       {scene === "beginning" && (
-        <BeginningScreen onFinish={() => setScene("stage")} /> 
+        <BeginningScreen onFinish={() => setScene("nbl")} /> 
       )}
+
+      {scene === "nbl" && (
+        <NblScreen onFinish={() => setScene("stage")} /> 
+      )}
+
 
       {scene === "stage" && renderStage()}
     </div>
