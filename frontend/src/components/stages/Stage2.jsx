@@ -60,10 +60,20 @@ function Pool({ onReady }) {
   useEffect(() => {
     if (readyOnce.current) return;
 
+    const nasaPgtElements = [];
     scene.traverse((o) => {
       if (!o.isMesh) return;
       if (isColliderNode(o)) o.visible = false;
+      
+      const name = (o.name || "").toLowerCase();
+      if (name.includes("nasa") || name.includes("pgt")) {
+        o.visible = false; 
+        nasaPgtElements.push(o);
+      }
     });
+    
+    window.stage2NasaPgtElements = nasaPgtElements;
+    
     scene.updateMatrixWorld(true);
 
     let waterNode = null;
@@ -192,6 +202,13 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onComplete }) {
         const dist = headWorld.distanceTo(RING_POS);
         if (dist > REPAIR_DISTANCE) return; 
 
+        if (window.stage2NasaPgtElements) {
+          window.stage2NasaPgtElements.forEach(element => {
+            element.visible = true;
+            console.log("NASA/PGT element made visible:", element.name);
+          });
+        }
+
         const fix = poolAnim?.actions?.fix || poolAnim?.actions?.Fix;
          if (fix) {
            repairState.current = "repairing";
@@ -319,6 +336,22 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onComplete }) {
   );
 }
 
+function Portal({ position }) {
+  const { scene } = useGLTF("/portal.glb");
+  
+  useEffect(() => {
+    if (scene) {
+      scene.scale.setScalar(1.0);
+      
+      scene.rotation.set(0, 0, 0);
+      
+      console.log("Portal loaded at position:", position);
+    }
+  }, [scene, position]);
+  
+  return <primitive object={scene} position={position} />;
+}
+
 function StageInner({ onComplete }) {
   const [world, setWorld] = useState(null);
   const onReady = useCallback((data) => setWorld(data), []);
@@ -337,15 +370,7 @@ function StageInner({ onComplete }) {
           onComplete={onComplete}
         />
       )}
-      <mesh position={RING_POS} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.8, 0.02, 16, 64]} />
-        <meshStandardMaterial
-          color="#ff4040"
-          emissive="#ff4040"
-          emissiveIntensity={1.3}
-          roughness={0.35}
-        />
-      </mesh>
+      <Portal position={RING_POS} />
     </>
   );
 }
