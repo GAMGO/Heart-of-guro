@@ -1,11 +1,21 @@
 import { useRef, useState, useEffect } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useGLTF, PointerLockControls } from "@react-three/drei";
+import { autoGenerateLights } from "../../assets/AutoLightGenarator.js";
+import { WaterController } from '../../assets/WaterShade.js';
 import * as THREE from "three";
 
 // 풀 장면
 function Pool() {
   const { scene } = useGLTF("./pool.glb");
+  useEffect(() => {
+    autoGenerateLights(
+        scene, 
+        2,            // offset
+        Math.PI / 6,  // angle
+        0.5           // penumbra
+    );
+}, [scene]);
   return <primitive object={scene} scale={1} />;
 }
 
@@ -151,6 +161,7 @@ export default function Stage1() {
   return (
     <div style={{ width: "100vw", height: "100vh" }}>
       <Canvas camera={{ position: [0, 2, 6], fov: 75 }}>
+        <WaterController /> 
         <ambientLight intensity={0.6} />
         <directionalLight position={[5, 5, 5]} intensity={1.2} />
         <Pool />
