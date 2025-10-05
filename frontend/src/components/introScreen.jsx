@@ -53,22 +53,25 @@ export default function IntroScreen({ onFinish }) {
       setDisplayText("");
       return;
     }
-
-    let index = 0;
+    
     setDisplayText("");
+    let index = 0;
 
-    // 첫 글자부터 타이핑 시작
-    const interval = setInterval(() => {
-      if (index < dialogue.text.length) {
-        setDisplayText((prev) => prev + dialogue.text.charAt(index));
-        index++;
-      } else {
-        clearInterval(interval);
-      }
-    }, 70); // 타이핑 속도 (ms)
+    // 첫 글자를 즉시 출력
+  setDisplayText(dialogue.text.charAt(index));
 
-    return () => clearInterval(interval);
+  const interval = setInterval(() => {
+    if (index < dialogue.text.length) {
+      setDisplayText((prev) => prev + dialogue.text.charAt(index));
+      index++;
+    } else {
+      clearInterval(interval);
+    }
+  }, 70); // 타이핑 속도(ms)
+
+  return () => clearInterval(interval);
   }, [dialogue]);
+
 
   // 🗞️ 신문 덮기 후 블랙아웃 처리
   const handleBlowEnd = () => {
