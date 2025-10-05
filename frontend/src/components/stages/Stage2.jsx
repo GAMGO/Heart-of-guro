@@ -45,6 +45,7 @@ function Pool({ onReady }) {
   const group = useRef();
   const { scene, animations } = useGLTF("/pool.glb");
 
+  
   useEffect(() => {
     autoGenerateLights(
         scene, 
@@ -170,7 +171,7 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onComplete }) {
     camera.position.set(0, HEAD_OFFSET, 0);
     rig.current.add(camera);
 
-     setStageText?.("Move to the red ring. Press F to repair");
+     setStageText?.("🔧 EQUIPMENT REPAIR TRAINING\n\n• Mission: Repair critical life support system\n• Move to the red ring and press F to begin repair\n• Use E/R keys to adjust ballast for stability\n• Complete the repair to proceed to next stage");
     ready.current = true;
   }, [xzBounds, setStageText, camera]);
 
@@ -194,7 +195,7 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onComplete }) {
         const fix = poolAnim?.actions?.fix || poolAnim?.actions?.Fix;
          if (fix) {
            repairState.current = "repairing";
-           setStageText?.("🔧 Repairing in progress...");
+           setStageText?.("🔧 REPAIR IN PROGRESS\n\n• Repairing critical life support system\n• Maintain stable position\n• Do not move during repair procedure\n• Repair will complete automatically");
            fix.reset();
            fix.setLoop(THREE.LoopOnce, 1);
            fix.clampWhenFinished = true;
@@ -203,12 +204,12 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onComplete }) {
            const mixer = poolAnim.mixer;
            const onFinished = () => {
              repairState.current = "completed";
-             setStageText?.("✅ Repair completed successfully!");
+             setStageText?.("✅ REPAIR COMPLETED SUCCESSFULLY!\n\n• Critical life support system restored\n• Mission objective achieved\n• Preparing for next training stage\n• Well done, astronaut!");
              
              let countdown = 3;
              const countdownInterval = setInterval(() => {
                if (countdown > 0) {
-                 setStageText?.(`✅ Repair completed successfully!\n\nNext stage in ${countdown}...`);
+                 setStageText?.(`✅ REPAIR COMPLETED SUCCESSFULLY!\n\n• Critical life support system restored\n• Mission objective achieved\n• Preparing for next training stage\n• Well done, astronaut!\n\nNext stage in ${countdown}...`);
                  countdown--;
                } else {
                  clearInterval(countdownInterval);
@@ -221,12 +222,12 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onComplete }) {
            mixer.addEventListener("finished", onFinished);
          } else {
            repairState.current = "completed";
-           setStageText?.("✅ Repair completed successfully!");
+           setStageText?.("✅ REPAIR COMPLETED SUCCESSFULLY!\n\n• Critical life support system restored\n• Mission objective achieved\n• Preparing for next training stage\n• Well done, astronaut!");
            
            let countdown = 3;
            const countdownInterval = setInterval(() => {
              if (countdown > 0) {
-               setStageText?.(`✅ Repair completed successfully!\n\nNext stage in ${countdown}...`);
+               setStageText?.(`✅ REPAIR COMPLETED SUCCESSFULLY!\n\n• Critical life support system restored\n• Mission objective achieved\n• Preparing for next training stage\n• Well done, astronaut!\n\nNext stage in ${countdown}...`);
                countdown--;
              } else {
                clearInterval(countdownInterval);
@@ -303,8 +304,8 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onComplete }) {
      } else if (repairState.current === "completed") {
        return;
      } else {
-       if (dist <= REPAIR_DISTANCE) setStageText?.("Approaching... Press F to repair");
-       else setStageText?.("Move to the red ring. Press F to repair");
+        if (dist <= REPAIR_DISTANCE) setStageText?.("🎯 REPAIR ZONE REACHED\n\n• You are now in the repair zone\n• Press F to begin the repair procedure\n• Maintain stable position during repair\n• Use E/R to adjust ballast if needed");
+        else setStageText?.("🔧 EQUIPMENT REPAIR TRAINING\n\n• Mission: Repair critical life support system\n• Move to the red ring and press F to begin repair\n• Use E/R keys to adjust ballast for stability\n• Complete the repair to proceed to next stage");
      }
   });
 
