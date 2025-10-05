@@ -17,7 +17,7 @@ export default function App() {
       case "stage1":
         return <Stage1 />;
       case "stage2":
-        return <Stage2 />;
+        return <Stage2 onComplete={() => setStage("stage3")} />;
       case "stage3":
         return <Stage3 onEnter={() => setStage("cupola")} />;
       case "cupola":
