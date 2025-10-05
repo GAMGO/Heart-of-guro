@@ -12,6 +12,7 @@ import useVerticalHydroReal from "../../physics/useVerticalHydroReal";
 import { HYDRO_CONFIG } from "../../physics/hydroConfig";
 
 useGLTF.preload("/pool.glb");
+useGLTF.preload("/portal.glb");
 
 const SPAWN_POS = new THREE.Vector3(-1.02, 1.75, 15.06);
 const PLAYER_HEIGHT = 1.75;
@@ -84,6 +85,25 @@ function Pool({ onReady }) {
   );
 }
 
+function Portal() {
+  const { scene } = useGLTF("/portal.glb");
+  const g = useRef();
+  useEffect(() => {
+    if (!g.current) return;
+    g.current.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
+  }, []);
+  return (
+    <group ref={g} position={[RING_POS.x, RING_POS.y, RING_POS.z]}>
+      <primitive object={scene} />
+    </group>
+  );
+}
+
 function expandBox(box, r, halfH) {
   return new THREE.Box3(
     new THREE.Vector3(box.min.x - r, box.min.y - halfH, box.min.z - r),
@@ -122,7 +142,7 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
   const keys = useRef({});
   const headYRef = useRef(SPAWN_POS.y);
   const vyRef = useRef(0);
-  const tRef = useRef(0);  // ✅ tRef 추가
+  const tRef = useRef(0);
   const hydroMove = useHydroMovementReal(HYDRO_CONFIG);
   const verticalMove = useVerticalHydroReal(HYDRO_CONFIG);
   const ready = useRef(false);
@@ -149,8 +169,8 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
     showBlock("INGRESS DRILL", [
       "Move: WASD",
       "Buoyancy: E/R",
-      "Action: F near the red ring",
-      "Approach the ring to start",
+      "Action: F near the portal",
+      "Approach the portal to start",
     ]);
     ready.current = true;
   }, [xzBounds, setStageText, camera]);
@@ -197,7 +217,7 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
         if (phaseRef.current === "purpose2") {
           phaseRef.current = "prepare";
           showBlock("CHECKLIST", [
-            "Stabilize within 3 m of the ring",
+            "Stabilize within 3 m of the portal",
             "Trim neutral with E/R, square to hatch",
             "Hands clear of hinges/seals",
             "Path clear, comms good",
@@ -248,7 +268,7 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
 
   useFrame((_, dt) => {
     if (!ready.current || !rig.current) return;
-    tRef.current += dt;  // ✅ tRef 업데이트
+    tRef.current += dt;
 
     const baseHeadMin = yBounds.headMin ?? -Infinity;
     const baseHeadMax = yBounds.headMax ?? Infinity;
@@ -262,10 +282,10 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
       weightCount: ballast,
       bounds: { minY: headMin, maxY: headMax },
       speedXZ: 0,
-      t: tRef.current,  // ✅ t 파라미터 추가
+      t: tRef.current,
     });
 
-    vyRef.current = vyRes.newVy;  // ✅ vyRef 업데이트 추가
+    vyRef.current = vyRes.newVy;
 
     const headTarget = THREE.MathUtils.clamp(vyRes.newY, headMin, headMax);
     const d = hydroMove.step({
@@ -388,10 +408,7 @@ function StageInner({ onEnter }) {
           <WaterController />
         </>
       )}
-      <mesh position={RING_POS} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.8, 0.02, 16, 64]} />
-        <meshStandardMaterial color="#ff4040" emissive="#ff4040" emissiveIntensity={1.3} roughness={0.35} />
-      </mesh>
+      <Portal />
     </>
   );
 }
