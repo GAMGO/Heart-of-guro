@@ -178,7 +178,9 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim }) {
     camera.position.set(0, HEAD_OFFSET, 0);
     rig.current.add(camera);
 
-    if (setStageText) setStageText("이동: WASD, 부력: E/R (F: 수리)");
+
+    if (setStageText) setStageText("이동: WASD, 부력: E/R (T: 수리)");
+
     ready.current = true;
   }, [xzBounds, setStageText, camera]);
 
@@ -196,8 +198,10 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim }) {
       if (e.code === "KeyE") setBallast((v) => Math.max(0, v - 1));
       if (e.code === "KeyR") setBallast((v) => v + 1);
 
-      // ✅ F키: fix 애니메이션 재생 (기존 로직 보존, 추가 동작만)
-      if (e.code === "KeyF") {
+      // ✅ T키: fix 애니메이션 재생 (기존 로직 보존, 추가 동작만)
+      if (e.code === "KeyT") {
+
+
         const fix = poolAnim?.actions?.fix;
         if (fix) {
           setStageText?.("🔧 수리 중...");
