@@ -3,6 +3,8 @@ import React, { Suspense, useCallback, useEffect, useRef, useState } from "react
 import { useFrame, useThree } from "@react-three/fiber";
 import { Environment, useGLTF, useAnimations } from "@react-three/drei";
 import * as THREE from "three";
+import { autoGenerateLights } from "../../assets/lightAutoGenarator";
+import { WaterController } from "../../assets/WaterShade.js";
 import { SimProvider, useSim } from "../../common/SimContext";
 import StageShell from "../../common/StageShell";
 import HUD from "../../common/HUD";
@@ -22,6 +24,7 @@ const CAM_MIN_Y = 1.75;
 const PAD = 0.01;
 const RING_POS = new THREE.Vector3(-5.489, 0, -7.946);
 const TRIGGER_DISTANCE = 3.0;
+const HOLD_TIME = 3.0;
 
 function isColliderNode(o) {
   const n = (o.name || "").toLowerCase();
@@ -58,6 +61,7 @@ function Pool({ onReady }) {
       if (isColliderNode(o) || nm.includes("nasa") || nm.includes("pgt")) o.visible = false;
     });
     scene.updateMatrixWorld(true);
+    autoGenerateLights(scene, 2, Math.PI / 6, 0.5);
     let waterNode = null;
     scene.traverse((o) => {
       if (!o.isMesh) return;
@@ -84,7 +88,11 @@ function Pool({ onReady }) {
     readyOnce.current = true;
   }, [scene, onReady, actions, mixer]);
 
-  return <group ref={group}><primitive object={scene} /></group>;
+  return (
+    <group ref={group}>
+      <primitive object={scene} />
+    </group>
+  );
 }
 
 function expandBox(box, r, halfH) {
@@ -125,15 +133,20 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
   const keys = useRef({});
   const headYRef = useRef(SPAWN_POS.y);
   const vyRef = useRef(0);
-  const tRef = useRef(0);
   const hydroMove = useHydroMovementReal(HYDRO_CONFIG);
   const verticalMove = useVerticalHydroReal(HYDRO_CONFIG);
   const ready = useRef(false);
   const halfH = PLAYER_HEIGHT * 0.5;
   const headWorld = useRef(new THREE.Vector3()).current;
   const phaseRef = useRef("idle");
+  const holdRef = useRef(0);
+  const lastPctRef = useRef(-1);
 
-  const show = (text) => setStageText(`Hatch Ingress Training\n\n${text}`);
+  const showBlock = (title, lines = []) => {
+    const h = `【${title}】`;
+    const body = lines.map((l) => `• ${l}`).join("\n");
+    setStageText([h, body].filter(Boolean).join("\n\n"));
+  };
 
   useEffect(() => {
     if (!rig.current) return;
@@ -143,7 +156,12 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
     rig.current.position.copy(startCenter);
     camera.position.set(0, HEAD_OFFSET, 0);
     rig.current.add(camera);
-    show("Move: WASD | Buoyancy: E/R | Action: F near red ring\nApproach and begin the training sequence.");
+    showBlock("INGRESS DRILL", [
+      "Move: WASD",
+      "Buoyancy: E/R",
+      "Action: F near the red ring",
+      "Approach the ring to start",
+    ]);
     ready.current = true;
   }, [xzBounds, setStageText, camera]);
 
@@ -164,21 +182,143 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
         if (dist > TRIGGER_DISTANCE) return;
 
         if (phaseRef.current === "idle") {
-          phaseRef.current = "brief";
-          show("Why this matters:\n• Prevents entanglement & pressure-door hazards\n• Builds precise buoyancy & body alignment\n• Reinforces coordination\n\nPress F to continue");
+          phaseRef.current = "purpose1";
+          showBlock("WHY THIS DRILL", [
+            "Avoid snags and hinge injuries",
+            "Refine buoyancy and body alignment",
+            "Confirm comms before tight entry",
+            "Press F to continue",
+          ]);
           return;
         }
-        if (phaseRef.current === "brief") {
-          phaseRef.current = "ready";
-          show("Approach the red ring and stabilize within 3m\nTrim neutral with E/R, hands clear of hinges\n\nPress F to open the hatch");
+
+        if (phaseRef.current === "purpose1") {
+          phaseRef.current = "purpose2";
+          showBlock("CONTEXT", [
+            "Exterior → Interior transition",
+            "Hold neutral trim, minimize wake",
+            "Protect seals and mechanisms",
+            "Keep tools/tethers clear",
+            "Press F for checklist",
+          ]);
           return;
         }
-        if (phaseRef.current === "ready") {
+
+        if (phaseRef.current === "purpose2") {
+          phaseRef.current = "prepare";
+          showBlock("CHECKLIST", [
+            "Stabilize within 3 m of the ring",
+            "Trim neutral with E/R, square to hatch",
+            "Hands clear of hinges/seals",
+            "Path clear, comms good",
+            "Press F to move to handle",
+          ]);
+          return;
+        }
+
+        if (phaseRef.current === "prepare") {
+          phaseRef.current = "handle";
+          holdRef.current = 0;
+          lastPctRef.current = -1;
+          showBlock("HANDLE", [
+            "Hold F for 3 s to actuate",
+            "Stay on centerline, neutral trim",
+            "Hold F now to open the hatch",
+          ]);
+          return;
+        }
+      }
+      if (/Arrow|Space/.test(e.code)) e.preventDefault();
+    };
+
+    const ku = (e) => {
+      keys.current[e.code] = false;
+      if (e.code === "KeyF" && phaseRef.current === "handle") {
+        holdRef.current = 0;
+        lastPctRef.current = -1;
+        showBlock("HANDLE", [
+          "Hold F for 3 s to actuate",
+          "Stay centered and neutral",
+          "Hold F again to continue",
+        ]);
+      }
+    };
+
+    document.addEventListener("keydown", kd, true);
+    document.addEventListener("keyup", ku, true);
+    const clear = () => (keys.current = {});
+    window.addEventListener("blur", clear);
+    return () => {
+      dom.removeEventListener("pointerdown", focus);
+      document.removeEventListener("keydown", kd, true);
+      document.removeEventListener("keyup", ku, true);
+      window.removeEventListener("blur", clear);
+    };
+  }, [gl, setBallast, camera, headWorld]);
+
+  useFrame((_, dt) => {
+    if (!ready.current || !rig.current) return;
+
+    const baseHeadMin = yBounds.headMin ?? -Infinity;
+    const baseHeadMax = yBounds.headMax ?? Infinity;
+    const headMin = Math.max(baseHeadMin, CAM_MIN_Y);
+    const headMax = baseHeadMax;
+
+    const vyRes = verticalMove.stepY({
+      dt,
+      y: headYRef.current,
+      vy: vyRef.current,
+      weightCount: ballast,
+      bounds: { minY: headMin, maxY: headMax },
+      speedXZ: 0,
+    });
+
+    const headTarget = THREE.MathUtils.clamp(vyRes.newY, headMin, headMax);
+    const d = hydroMove.step({
+      dt,
+      camera,
+      moveKeys: keys.current,
+      effMass: Math.max(100, vyRes.totalMass ?? 180),
+    });
+
+    const cur = rig.current.position.clone();
+    const proposed = cur.clone();
+    if (Number.isFinite(d.x)) proposed.x = cur.x + d.x;
+    if (Number.isFinite(d.y)) proposed.z = cur.z + d.y;
+    proposed.y = headTarget - HEAD_OFFSET;
+
+    clampXZInside(proposed, xzBounds, PLAYER_RADIUS);
+    const blocked = blockBySpaceship(cur, proposed, spaceshipBoxes, PLAYER_RADIUS, halfH);
+    rig.current.position.copy(blocked);
+
+    headYRef.current = blocked.y + HEAD_OFFSET;
+    posRef.current = { x: blocked.x, y: blocked.y + HEAD_OFFSET, z: blocked.z };
+
+    const headWorldPos = new THREE.Vector3();
+    camera.getWorldPosition(headWorldPos);
+    const dist = headWorldPos.distanceTo(RING_POS);
+
+    if (phaseRef.current === "handle") {
+      if (dist <= TRIGGER_DISTANCE && keys.current["KeyF"]) {
+        holdRef.current += dt;
+        const pct = Math.min(100, Math.floor((holdRef.current / HOLD_TIME) * 100));
+        if (pct !== lastPctRef.current) {
+          const filled = Math.round((pct / 100) * 12);
+          const bar = "█".repeat(filled) + " ".repeat(12 - filled);
+          showBlock("HANDLE", [`[${bar}] ${pct}%`, "Keep holding F, stay centered"]);
+          lastPctRef.current = pct;
+        }
+        if (holdRef.current >= HOLD_TIME) {
           const openA = poolAnim?.actions?.open || poolAnim?.actions?.Open;
           const openedA = poolAnim?.actions?.opened || poolAnim?.actions?.Opened;
+          phaseRef.current = "opening";
+          holdRef.current = 0;
+          lastPctRef.current = -1;
+          showBlock("HATCH OPENING", [
+            "Hold position; avoid seals/hinges",
+            "Centerline only; small corrections",
+          ]);
           if (openA) {
-            phaseRef.current = "opening";
-            show("Hatch opening in progress...\nHold position and remain centered.");
             openA.reset();
             openA.clampWhenFinished = true;
             openA.setLoop(THREE.LoopOnce, 1);
@@ -190,61 +330,38 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
                 openedA.setLoop(THREE.LoopOnce, 1);
                 openedA.play();
               }
-              show("You have successfully completed the Hatch Ingress Training!\nWell done, astronaut!");
+              phaseRef.current = "ingress";
+              showBlock("INGRESS", [
+                "Glide through slowly, stay centered",
+                "Protect suit, tethers, cameras",
+                "Clear the threshold and stabilize",
+                "Training complete",
+              ]);
               poolAnim?.mixer?.removeEventListener("finished", onFinished);
-              setTimeout(() => onEnter && onEnter(), 3000);
+              setTimeout(() => onEnter && onEnter(), 2200);
             };
             poolAnim?.mixer?.addEventListener("finished", onFinished);
           } else {
-            show("You have successfully completed the Hatch Ingress Training!\nWell done, astronaut!");
-            setTimeout(() => onEnter && onEnter(), 3000);
+            phaseRef.current = "ingress";
+            showBlock("INGRESS", [
+              "Glide through slowly, stay centered",
+              "Protect suit, tethers, cameras",
+              "Clear the threshold and stabilize",
+              "Training complete",
+            ]);
+            setTimeout(() => onEnter && onEnter(), 2200);
           }
         }
+      } else if (holdRef.current > 0) {
+        holdRef.current = 0;
+        lastPctRef.current = -1;
+        showBlock("HANDLE", [
+          "Hold F for 3 s to actuate",
+          "Stay centered and neutral",
+          "Hold F again to continue",
+        ]);
       }
-      if (/Arrow|Space/.test(e.code)) e.preventDefault();
-    };
-    const ku = (e) => (keys.current[e.code] = false);
-    document.addEventListener("keydown", kd, true);
-    document.addEventListener("keyup", ku, true);
-    const clear = () => (keys.current = {});
-    window.addEventListener("blur", clear);
-    return () => {
-      dom.removeEventListener("pointerdown", focus);
-      document.removeEventListener("keydown", kd, true);
-      document.removeEventListener("keyup", ku, true);
-      window.removeEventListener("blur", clear);
-    };
-  }, [gl, setBallast, poolAnim, camera, headWorld, onEnter]);
-
-  useFrame((_, dt) => {
-    if (!ready.current || !rig.current) return;
-    tRef.current += dt;
-    const baseHeadMin = yBounds.headMin ?? -Infinity;
-    const baseHeadMax = yBounds.headMax ?? Infinity;
-    const headMin = Math.max(baseHeadMin, CAM_MIN_Y);
-    const headMax = baseHeadMax;
-    const vyRes = verticalMove.stepY({
-      dt,
-      y: headYRef.current,
-      vy: vyRef.current,
-      weightCount: ballast,
-      bounds: { minY: headMin, maxY: headMax },
-      speedXZ: 0,
-      t: tRef.current,
-    });
-    vyRef.current = vyRes.newVy;
-    const headTarget = THREE.MathUtils.clamp(vyRes.newY, headMin, headMax);
-    const d = hydroMove.step({ dt, camera, moveKeys: keys.current, effMass: Math.max(100, vyRes.totalMass ?? 180) });
-    const cur = rig.current.position.clone();
-    const proposed = cur.clone();
-    if (Number.isFinite(d.x)) proposed.x = cur.x + d.x;
-    if (Number.isFinite(d.y)) proposed.z = cur.z + d.y;
-    proposed.y = headTarget - HEAD_OFFSET;
-    clampXZInside(proposed, xzBounds, PLAYER_RADIUS);
-    const blocked = blockBySpaceship(cur, proposed, spaceshipBoxes, PLAYER_RADIUS, halfH);
-    rig.current.position.copy(blocked);
-    headYRef.current = blocked.y + HEAD_OFFSET;
-    posRef.current = { x: blocked.x, y: blocked.y + HEAD_OFFSET, z: blocked.z };
+    }
   });
 
   return (
@@ -267,13 +384,16 @@ function StageInner({ onEnter }) {
       <directionalLight position={[5, 5, 5]} intensity={1.2} />
       <Pool onReady={onReady} />
       {world && (
-        <Player
-          xzBounds={world.xzBounds}
-          yBounds={world.yBounds}
-          spaceshipBoxes={world.spaceshipBoxes}
-          poolAnim={{ actions: world.actions, mixer: world.mixer }}
-          onEnter={onEnter}
-        />
+        <>
+          <Player
+            xzBounds={world.xzBounds}
+            yBounds={world.yBounds}
+            spaceshipBoxes={world.spaceshipBoxes}
+            poolAnim={{ actions: world.actions, mixer: world.mixer }}
+            onEnter={onEnter}
+          />
+          <WaterController />
+        </>
       )}
       <mesh position={RING_POS} rotation={[Math.PI / 2, 0, 0]}>
         <torusGeometry args={[0.8, 0.02, 16, 64]} />
