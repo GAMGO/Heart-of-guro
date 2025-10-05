@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import StartScreen from "./components/StartScreen.jsx";
 import IntroScreen from "./components/introScreen.jsx";
 import StageLayout from "./components/StageLayout.jsx";
@@ -8,43 +8,45 @@ import Stage3 from "./components/stages/Stage3.jsx";
 import Cupola from "./components/stages/Cupola.jsx";
 
 export default function App() {
-  const [screen, setScreen] = useState("start"); // 현재 화면 상태 ("start" | "intro" | "stage")
-  const [stage, setStage] = useState("stage1");  // 선택된 스테이지 이름
-
-  // StartScreen에서 Start 버튼 클릭 시 실행
-  const handleStart = (selected) => {
-    setStage(selected);
-    setScreen("intro"); // 인트로 컷씬으로 전환
-  };
-
-  // 인트로가 끝나면 실제 스테이지로 넘어가는 콜백
-  const handleIntroEnd = () => {
-    setScreen("stage");
-  };
+  const [scene, setScene] = useState("splash");
+  const [stage, setStage] = useState("stage1");
+  const stageRef = useRef(null);
 
   // 스테이지별 컴포넌트 매핑
   const stageMap = {
-    stage1: <Stage1 />,
-    stage2: <Stage2 />,
-    stage3: <Stage3 />,
-    cupola: <Cupola />,
+    stage1: <Stage1 ref={stageRef} />,
+    stage2: <Stage2 ref={stageRef} />,
+    stage3: <Stage3 ref={stageRef} />,
+    cupola: <Cupola ref={stageRef} />,
   };
 
-  const rootClass = stage === "stage3" ? "stage-stage3" : "";
+  const rootClass = scene === "stage" && stage === "stage3" ? "stage-stage3" : "";
 
   // 화면 전환 로직
   return (
-    <>
-      {screen === "start" && <StartScreen onStart={handleStart} />}
-
-      {screen === "intro" && <IntroScreen onFinish={handleIntroEnd} />} 
-      {/* 인트로 끝나면 자동으로 handleIntroEnd() 호출 */}
-
-      {screen === "stage" && (
-        <div className={rootClass}>
-          <StageLayout>{stageMap[stage]}</StageLayout>
-        </div>
+    <div className={rootClass}>
+      {scene === "splash" && (
+        <StartScreen
+          onStart={(selected) => {
+            setStage(selected || "stage1");
+            setScene("stage");
+          }}
+          onStage={(s) => {
+            setStage(s);
+            setScene("stage");
+          }}
+          onCupola={() => {
+            setStage("cupola");
+            setScene("stage");
+          }}
+        />
       )}
-    </>
+
+      {scene === "stage" && (
+        <>
+          {stageMap[stage] || null}
+        </>
+      )}
+    </div>
   );
 }

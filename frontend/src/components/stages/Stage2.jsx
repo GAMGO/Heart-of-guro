@@ -1,383 +1,211 @@
-import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import {
-  PointerLockControls,
-  Environment,
-  useGLTF,
-  useAnimations,
-} from "@react-three/drei";
+import React, { Suspense, useEffect, useRef } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import { Environment, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
+import useHydroMovementReal from "../../physics/useHydroMovementReal";
 import useVerticalHydroReal from "../../physics/useVerticalHydroReal";
-import { buildEmuNblConfig } from "../../physics/nasaPresets";
-import "./Stage2.css";
+import { HYDRO_CONFIG } from "../../physics/hydroConfig";
+import { SimProvider, useSim } from "../../common/SimContext";
+import StageShell from "../../common/StageShell";
+import HUD from "../../common/HUD";
 
 useGLTF.preload("/pool.glb");
 
-function useKeys() {
-  const keys = useRef({
-    w: false,
-    a: false,
-    s: false,
-    d: false,
-    r: false,
+const SPAWN_POS = new THREE.Vector3(-1.02, 1.75, 15.06);
+const RING_POS = new THREE.Vector3(-1.59, 0.0, 14.89);
+const PLAYER_HEIGHT = 1.75;
+const PLAYER_RADIUS = 0.38;
+const HEAD_OFFSET = PLAYER_HEIGHT * 0.5;
+const FLOOR_MIN_Y = 1.5;
+const CEIL_MAX_Y = 12;
+const WORLD_LIMIT = { minX: -20, maxX: 20, minY: FLOOR_MIN_Y, maxY: CEIL_MAX_Y, minZ: -25, maxZ: 25 };
+const REPAIR_DISTANCE = 2.0;
+
+function Pool() {
+  const { scene } = useGLTF("/pool.glb");
+  scene.traverse((o) => {
+    const n = (o.name || "").toLowerCase();
+    if (n.includes("collision") || n.includes("collider") || n.startsWith("col_")) o.visible = false;
   });
-  const prevKeys = useRef({ r: false });
-  const [isRPressed, setIsRPressed] = useState(false);
-
-  useEffect(() => {
-    const down = (e) => {
-      switch (e.code) {
-        case "KeyW":
-          keys.current.w = true;
-          e.preventDefault();
-          break;
-        case "KeyA":
-          keys.current.a = true;
-          e.preventDefault();
-          break;
-        case "KeyS":
-          keys.current.s = true;
-          e.preventDefault();
-          break;
-        case "KeyD":
-          keys.current.d = true;
-          e.preventDefault();
-          break;
-        case "KeyR":
-          keys.current.r = true;
-          if (!prevKeys.current.r) {
-            setIsRPressed(true);
-          }
-          e.preventDefault();
-          break;
-        default:
-          break;
-      }
-    };
-    const up = (e) => {
-      switch (e.code) {
-        case "KeyW":
-          keys.current.w = false;
-          break;
-        case "KeyA":
-          keys.current.a = false;
-          break;
-        case "KeyS":
-          keys.current.s = false;
-          break;
-        case "KeyD":
-          keys.current.d = false;
-          break;
-        case "KeyR":
-          keys.current.r = false;
-          prevKeys.current.r = false;
-          setIsRPressed(false);
-          break;
-        default:
-          break;
-      }
-    };
-    window.addEventListener("keydown", down, { passive: false });
-    window.addEventListener("keyup", up, { passive: true });
-    return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (isRPressed) {
-      const timer = setTimeout(() => {
-        setIsRPressed(false);
-      }, 0);
-      return () => clearTimeout(timer);
-    }
-  }, [isRPressed]);
-
-  return { keys, isRPressed };
+  return <primitive object={scene} />;
 }
 
-function Stage2Inner({ onPositionUpdate, onRepairStart, onRepairComplete }) {
-  const { camera } = useThree();
-  const { scene: pool, animations } = useGLTF("/pool.glb");
-  const { actions, mixer } = useAnimations(animations, pool);
-  const [ready, setReady] = useState(false);
-  const [isRepairing, setIsRepairing] = useState(false);
-  const worldBox = useRef(new THREE.Box3());
-  const player = useRef(new THREE.Vector3());
-  const { keys, isRPressed } = useKeys();
-  const tmpDir = useMemo(() => new THREE.Vector3(), []);
-  const tmpNext = useMemo(() => new THREE.Vector3(), []);
-  const forward = useMemo(() => new THREE.Vector3(), []);
-  const right = useMemo(() => new THREE.Vector3(), []);
-  const up = useMemo(() => new THREE.Vector3(0, 1, 0), []);
-  const pad = 0.25;
-  const minY = 1.75;
-  const ceilY = useRef(12);
+function gatherCollisionBoxes(root) {
+  const boxes = [];
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const n = (o.name || "").toLowerCase();
+    if (!(n.includes("collision") || n.includes("collider") || n.startsWith("col_"))) return;
+    o.visible = false;
+    o.updateWorldMatrix(true, true);
+    const b = new THREE.Box3().setFromObject(o);
+    boxes.push(b);
+  });
+  return boxes;
+}
 
-  const pgtRef = useRef(null);
-  const boltRefs = useRef([]);
+function expandBox(box, r, hh) {
+  return new THREE.Box3(
+    new THREE.Vector3(box.min.x - r, box.min.y - hh, box.min.z - r),
+    new THREE.Vector3(box.max.x + r, box.max.y + hh, box.max.z + r)
+  );
+}
 
-  const RING_POS = useMemo(() => new THREE.Vector3(-1.59, 0.0, 14.89), []);
-  const RING_COLOR = "#ff3030";
-  const REPAIR_DISTANCE = 2.0;
+function inside(p, b) {
+  return p.x > b.min.x && p.x < b.max.x && p.y > b.min.y && p.y < b.max.y && p.z > b.min.z && p.z < b.max.z;
+}
 
-  const hydro = useVerticalHydroReal(buildEmuNblConfig({ ballastKg: 5 }));
+function collides(centerPos, boxes, radius, halfH) {
+  for (let i = 0; i < boxes.length; i++) {
+    if (inside(centerPos, expandBox(boxes[i], radius, halfH))) return true;
+  }
+  return false;
+}
 
-  useEffect(() => {
-    if (isRPressed) {
-      const distance = player.current.distanceTo(RING_POS);
-      console.log("현재 거리:", distance.toFixed(2), "수리 가능 거리:", REPAIR_DISTANCE);
-      
-      if (distance <= REPAIR_DISTANCE) {
-        console.log("수리 가능한 거리입니다! 수리 시작!");
-        setIsRepairing(true);
-        onRepairStart();
-        
-        if (actions.fix) {
-          actions.fix.setLoop(THREE.LoopOnce, 1);
-          actions.fix.clampWhenFinished = true;
-          actions.fix.reset().play();
-          
-          const handleAnimationComplete = () => {
-            setIsRepairing(false);
-            onRepairComplete();
-          };
+function clampWorldCenter(p, world, r) {
+  p.x = Math.min(Math.max(p.x, world.minX + r), world.maxX - r);
+  p.z = Math.min(Math.max(p.z, world.minZ + r), world.maxZ - r);
+  return p;
+}
 
-          if (mixer) {
-            const onFinished = (event) => {
-              if (event.action === actions.fix) {
-                mixer.removeEventListener("finished", onFinished);
-                handleAnimationComplete();
-              }
-            };
-            mixer.addEventListener("finished", onFinished);
-          }
-        }
-      } else {
-        console.log("수리 위치에서 너무 멉니다. 더 가까이 접근하세요!");
-      }
-    }
-  }, [isRPressed, actions, onRepairStart, onRepairComplete, mixer, RING_POS]);
+function Player() {
+  const { camera, gl, scene } = useThree();
+  const { posRef, ballast, setBallast, setStageText } = useSim();
+  const rig = useRef(null);
+  const moveKeys = useRef({});
+  const colBoxesRef = useRef([]);
+  const headYRef = useRef(SPAWN_POS.y);
+  const vyRef = useRef(0);
+  const tRef = useRef(0);
+  const { stepY } = useVerticalHydroReal(HYDRO_CONFIG);
+  const { step: stepXZ } = useHydroMovementReal(HYDRO_CONFIG);
+  const ready = useRef(false);
 
   useEffect(() => {
-    pool.updateMatrixWorld(true);
-    
-    pool.traverse((o) => {
-      if (!o.isMesh && !o.isGroup) return;
-      const name = (o.name || "").toLowerCase();
-      const c = o.material?.color;
-      const isMagenta = c && Math.abs(c.r - 1) + Math.abs(c.g - 0) + Math.abs(c.b - 1) < 0.4;
-      
-      if (name.includes("collider") || name.includes("collision") || isMagenta) {
-        o.visible = false;
-      }
-      
-      if (o.name === "PGT") {
-        pgtRef.current = o;
-        o.visible = false;
-        o.children.forEach(child => {
-          child.visible = false;
-        });
-      }
-      
-      if (o.name === "nasa" || o.name === "nasa001" || o.name === "nasa002" || o.name === "nasa003") {
-        boltRefs.current.push(o);
-        o.visible = false;
-      }
-    });
-
-    worldBox.current.setFromObject(pool);
-    const center = new THREE.Vector3();
-    worldBox.current.getCenter(center);
-    ceilY.current = worldBox.current.max.y - pad;
-    player.current.set(center.x, minY, center.z);
-    camera.position.copy(player.current);
-    setReady(true);
-  }, [pool, camera]);
+    colBoxesRef.current = gatherCollisionBoxes(scene);
+    if (rig.current) rig.current.position.set(SPAWN_POS.x, SPAWN_POS.y - HEAD_OFFSET, SPAWN_POS.z);
+    camera.position.set(0, HEAD_OFFSET, 0);
+    if (rig.current) rig.current.add(camera);
+    setStageText("빨간 링 근처로 이동하세요. F로 수리");
+    ready.current = true;
+  }, [scene, camera, setStageText]);
 
   useEffect(() => {
-    if (pgtRef.current) {
-      pgtRef.current.visible = isRepairing;
-      pgtRef.current.children.forEach(child => {
-        child.visible = isRepairing;
-      });
-    }
-    
-    boltRefs.current.forEach(bolt => {
-      if (bolt) {
-        bolt.visible = isRepairing;
+    const kd = (e) => {
+      moveKeys.current[e.code] = true;
+      if (e.code === "KeyE") setBallast((v) => Math.max(0, v - 1));
+      if (e.code === "KeyR") setBallast((v) => v + 1);
+      if (["Space", "ShiftLeft", "ShiftRight"].includes(e.code)) e.preventDefault();
+      if (e.code === "KeyF") {
+        const dist = camera.position.distanceTo(RING_POS);
+        if (dist <= REPAIR_DISTANCE) setStageText("✅ 수리 완료");
       }
-    });
-  }, [isRepairing]);
+    };
+    const ku = (e) => (moveKeys.current[e.code] = false);
+    const dom = gl.domElement;
+    dom.tabIndex = 0;
+    dom.focus();
+    dom.addEventListener("keydown", kd, { passive: false });
+    dom.addEventListener("keyup", ku, { passive: false });
+    window.addEventListener("keydown", kd, { passive: false });
+    window.addEventListener("keyup", ku, { passive: false });
+    return () => {
+      dom.removeEventListener("keydown", kd);
+      dom.removeEventListener("keyup", ku);
+      window.removeEventListener("keydown", kd);
+      window.removeEventListener("keyup", ku);
+    };
+  }, [gl, setBallast, camera, setStageText]);
 
   useFrame((_, dt) => {
-    if (!ready) return;
+    if (!ready.current || !rig.current) return;
+    tRef.current += dt;
 
-    const base = 2.0;
-    const speed = base * dt;
-    tmpDir.set(0, 0, 0);
-    if (keys.current.w) tmpDir.z += 1;
-    if (keys.current.s) tmpDir.z -= 1;
-    if (keys.current.a) tmpDir.x += 1;
-    if (keys.current.d) tmpDir.x -= 1;
-    if (tmpDir.lengthSq() > 0) tmpDir.normalize();
-    camera.getWorldDirection(forward);
-    forward.y = 0;
-    if (forward.lengthSq() === 0) forward.set(0, 0, -1);
-    forward.normalize();
-    right.copy(up).cross(forward).normalize();
-    const moveX = right.x * tmpDir.x * speed + forward.x * tmpDir.z * speed;
-    const moveZ = right.z * tmpDir.x * speed + forward.z * tmpDir.z * speed;
-    tmpNext.set(
-      player.current.x + moveX,
-      player.current.y,
-      player.current.z + moveZ
-    );
+    const res = stepY({
+      dt,
+      y: headYRef.current,
+      vy: vyRef.current,
+      weightCount: ballast,
+      bounds: { minY: FLOOR_MIN_Y, maxY: CEIL_MAX_Y },
+      speedXZ: 0,
+      t: tRef.current
+    });
+    vyRef.current = res.newVy;
+    headYRef.current = res.newY;
 
-    const r = hydro.step(dt, forward, right);
-    let y = r.y;
-    if (y < minY) {
-      y = minY;
-      hydro.setY(y);
-      hydro.setVY(0);
+    const d = stepXZ({
+      dt,
+      camera,
+      moveKeys: moveKeys.current,
+      effMass: Math.max(100, res.totalMass ?? 180)
+    });
+
+    const curCenter = rig.current.position.clone();
+    const nextCenter = curCenter.clone();
+
+    if (Number.isFinite(d.x)) {
+      const tryPos = curCenter.clone();
+      tryPos.x += d.x;
+      clampWorldCenter(tryPos, WORLD_LIMIT, PLAYER_RADIUS);
+      if (!collides(tryPos, colBoxesRef.current, PLAYER_RADIUS, PLAYER_HEIGHT * 0.5)) nextCenter.x = tryPos.x;
     }
-    if (y > ceilY.current) {
-      y = ceilY.current;
-      hydro.setY(y);
-      hydro.setVY(0);
-    }
-    tmpNext.y = y;
 
-    const min = worldBox.current.min.clone().addScalar(pad);
-    const max = worldBox.current.max.clone().addScalar(-pad);
-    tmpNext.x = THREE.MathUtils.clamp(tmpNext.x, min.x, max.x);
-    tmpNext.z = THREE.MathUtils.clamp(tmpNext.z, min.z, max.z);
-    player.current.set(tmpNext.x, y, tmpNext.z);
-    camera.position.copy(player.current);
-    onPositionUpdate(player.current);
+    if (Number.isFinite(d.y)) {
+      const tryPos = nextCenter.clone();
+      tryPos.z += d.y;
+      clampWorldCenter(tryPos, WORLD_LIMIT, PLAYER_RADIUS);
+      if (!collides(tryPos, colBoxesRef.current, PLAYER_RADIUS, PLAYER_HEIGHT * 0.5)) nextCenter.z = tryPos.z;
+    }
+
+    const targetHead = Math.min(Math.max(headYRef.current, FLOOR_MIN_Y), CEIL_MAX_Y);
+    const targetCenterY = targetHead - HEAD_OFFSET;
+    const tryY = nextCenter.clone();
+    tryY.y = targetCenterY;
+    if (!collides(tryY, colBoxesRef.current, PLAYER_RADIUS, PLAYER_HEIGHT * 0.5)) nextCenter.y = targetCenterY;
+
+    rig.current.position.copy(nextCenter);
+    posRef.current = { x: nextCenter.x, y: nextCenter.y + HEAD_OFFSET, z: nextCenter.z };
+
+    const dist = new THREE.Vector3(nextCenter.x, nextCenter.y + HEAD_OFFSET, nextCenter.z).distanceTo(RING_POS);
+    if (dist <= REPAIR_DISTANCE) setStageText("접근 중... F로 수리");
+    else setStageText("빨간 링 근처로 이동하세요. F로 수리");
   });
 
   return (
+    <group ref={rig}>
+      <mesh visible={false} position={[0, 0, 0]}>
+        <capsuleGeometry args={[PLAYER_RADIUS, PLAYER_HEIGHT - 2 * PLAYER_RADIUS, 8, 16]} />
+        <meshBasicMaterial transparent opacity={0} />
+      </mesh>
+    </group>
+  );
+}
+
+function Stage2Inner() {
+  return (
     <>
-      <primitive object={pool} />
+      <ambientLight intensity={0.6} />
+      <directionalLight position={[5, 6, 4]} intensity={1.1} />
+      <Pool />
+      <Player />
       <mesh position={RING_POS} rotation={[Math.PI / 2, 0, 0]}>
         <torusGeometry args={[0.8, 0.02, 16, 64]} />
-        <meshBasicMaterial color={RING_COLOR} transparent opacity={0.9} />
+        <meshStandardMaterial color="#ff4040" emissive="#ff4040" emissiveIntensity={1.3} roughness={0.35} />
       </mesh>
     </>
   );
 }
 
 export default function Stage2() {
-  const [locked, setLocked] = useState(false);
-  const ctrl = useRef(null);
-  const [position, setPosition] = useState({ x: 0, y: 0, z: 0 });
-  const [stage, setStage] = useState(1);
-
-  const handlePositionUpdate = (newPosition) => {
-    setPosition({
-      x: newPosition.x.toFixed(2),
-      y: newPosition.y.toFixed(2),
-      z: newPosition.z.toFixed(2),
-    });
-  };
-
-  const handleRepairStart = () => {
-    console.log("수리 시작됨!");
-    setStage(3);
-  };
-
-  const handleRepairComplete = () => {
-    console.log("수리 완료됨!");
-    setStage(4);
-  };
-
-  const getStageText = () => {
-    switch (stage) {
-      case 1:
-        return "빨간 원을 찾으세요.";
-      case 2:
-        return "수리해주세요";
-      case 3:
-        return "수리 중...";
-      case 4:
-        return "수리 완료!";
-      default:
-        return "빨간 원을 찾으세요.";
-    }
-  };
-
-  const getStageTitle = () => {
-    switch (stage) {
-      case 1:
-        return "현재 단계: 탐색";
-      case 2:
-        return "현재 단계: 접근";
-      case 3:
-        return "현재 단계: 수리";
-      case 4:
-        return "현재 단계: 완료";
-      default:
-        return "현재 단계: 탐색";
-    }
-  };
-
   return (
-    <div className="stage2-canvas">
-      {!locked && (
-        <div className="lock-hint" onClick={() => ctrl.current?.lock()}>
-          클릭해서 조작 시작 (WASD, Space, Shift, 마우스로 시점)
-        </div>
-      )}
-
-      <div className="quest-panel">
-        <h3>Stage 2 — 외벽 수리 훈련</h3>
-        <div className="sub">{getStageTitle()}</div>
-
-        <div className="quest-card hint-card">
-          <div>수리 위치로 접근하세요</div>
-          <div className="hint-sub">{getStageText()}</div>
-        </div>
-
-        <div className="quest-card status-card">
-          <div className="quest-card-title">캐릭터 좌표</div>
-          <div className="status-info">
-            <div>X: {position.x}</div>
-            <div>Y: {position.y}</div>
-            <div>Z: {position.z}</div>
-          </div>
-        </div>
-
-        <div className="quest-card controls-card">
-          <div className="quest-card-title">조작법</div>
-          <div className="controls-info">
-            <div>WASD: 이동</div>
-            <div>마우스: 시점 조작</div>
-            <div>Space: 위로 이동</div>
-            <div>Shift: 아래로 이동</div>
-            <div>R키: 수리 시작</div>
-          </div>
-        </div>
-      </div>
-
-      <Canvas camera={{ position: [8, 2, 8], fov: 60 }}>
-        <ambientLight intensity={0.7} />
-        <directionalLight position={[8, 12, 6]} intensity={1.1} />
+    <SimProvider initialBallast={HYDRO_CONFIG.ballastKg}>
+      <StageShell camera={{ position: [SPAWN_POS.x, SPAWN_POS.y, SPAWN_POS.z], fov: 60 }} envPreset="warehouse" title={<HUD title="Stage 2" extra={null} />}>
         <Suspense fallback={null}>
-          <Stage2Inner
-            onPositionUpdate={handlePositionUpdate}
-            onRepairStart={handleRepairStart}
-            onRepairComplete={handleRepairComplete}
-          />
+          <Stage2Inner />
           <Environment preset="warehouse" />
         </Suspense>
-        <PointerLockControls
-          ref={ctrl}
-          onLock={() => setLocked(true)}
-          onUnlock={() => setLocked(false)}
-        />
-      </Canvas>
-    </div>
+      </StageShell>
+    </SimProvider>
   );
 }
+//
