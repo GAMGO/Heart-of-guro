@@ -1,5 +1,6 @@
 import React, { useState, useRef } from "react";
 import StartScreen from "./components/StartScreen.jsx";
+import IntroScreen from "./components/introScreen.jsx";
 import StageLayout from "./components/StageLayout.jsx";
 import Stage1 from "./components/stages/Stage1.jsx";
 import Stage2 from "./components/stages/Stage2.jsx";
@@ -11,6 +12,7 @@ export default function App() {
   const [stage, setStage] = useState("stage1");
   const stageRef = useRef(null);
 
+  // 스테이지별 컴포넌트 매핑
   const stageMap = {
     stage1: <Stage1 ref={stageRef} />,
     stage2: <Stage2 ref={stageRef} />,
@@ -20,6 +22,7 @@ export default function App() {
 
   const rootClass = scene === "stage" && stage === "stage3" ? "stage-stage3" : "";
 
+  // 화면 전환 로직
   return (
     <div className={rootClass}>
       {scene === "splash" && (
