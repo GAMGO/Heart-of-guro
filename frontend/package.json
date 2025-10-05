@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "homepage": "https://gamgo.github.io/buzz-joe-project/", 
+  "homepage": "https://gamgo.github.io/Heart-of-guro/",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

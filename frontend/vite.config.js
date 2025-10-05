@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-const REPO_NAME = '/buzz-joe-project/';
+const REPO_NAME = '/Heart-of-guro/';
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
