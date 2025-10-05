@@ -25,7 +25,7 @@ export default function BeginningScreen({ onFinish }) {
   }, []);
 
   const startTyping = () => {
-    const text = "이거다...!! 언젠가 우주에서 살아야한다면 내가 앞장서고 싶어 !!";
+    const text = "That's it..!! If I have to live in space someday, I want to take the lead!!";
     let index = 0;
     setDisplayText("");
 
