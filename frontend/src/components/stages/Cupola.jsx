@@ -3,7 +3,6 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
   OrbitControls,
   Stars,
-  Sparkles,
   Environment,
   Lightformer,
   Html,
@@ -12,7 +11,6 @@ import {
   useGLTF,
   useAnimations,
 } from "@react-three/drei";
-import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
 import { SkeletonUtils } from "three-stdlib";
 
@@ -32,6 +30,7 @@ const CUPOLA_PRE_YAW_DEG = 90;
 const CUPOLA_PRE_ROLL_DEG = 0;
 const CUPOLA_ROLL_FIX_DEG = 0;
 const ALTITUDE_BUMP_KM = 2000;
+
 
 function gmstRadians(date) {
   const JD = date.getTime() / 86400000 + 2440587.5;
@@ -71,7 +70,7 @@ function hermite1D(y0, y1, v0, v1, h, t) {
     h10 = s * (1 - s) * (1 - s),
     h01 = s * s * (3 - 2 * s),
     h11 = s * s * (s - 1);
-  return h00 * y0 + h * h10 * v0 + h * h11 * y1;
+  return h00 * y0 + h * h10 * v0 + h01 * y1 + h * h11 * v1;
 }
 function parseOEM(xmlText) {
   const doc = new DOMParser().parseFromString(xmlText, "text/xml");
@@ -111,8 +110,7 @@ function resampleTo240(states) {
   const out = [];
   for (let t = start.getTime(); t <= end.getTime(); t += cadence * 1000) {
     let idx = states.findIndex(
-      (s, i) =>
-        +s.epoch <= t && +states[Math.min(i + 1, states.length - 1)].epoch >= t
+      (s, i) => +s.epoch <= t && +states[Math.min(i + 1, states.length - 1)].epoch >= t
     );
     if (idx < 0) {
       out.push(states[0]);
@@ -139,8 +137,7 @@ function resampleTo240(states) {
 function interpRV(states, t) {
   const T = +t;
   let i = states.findIndex(
-    (s, idx) =>
-      +s.epoch <= T && +states[Math.min(idx + 1, states.length - 1)].epoch >= T
+    (s, idx) => +s.epoch <= T && +states[Math.min(idx + 1, states.length - 1)].epoch >= T
   );
   if (i < 0) {
     const end = T >= +states.at(-1).epoch;
@@ -164,43 +161,54 @@ function interpRV(states, t) {
     ),
   };
 }
+
+const asDate = (d) => (d instanceof Date ? d : new Date(d));
+const isValidDate = (d) => Number.isFinite(+asDate(d));
+
 async function geminiPredict(nextMinutes, tailStates) {
   const base =
     import.meta.env.VITE_GEMINI_BASE_URL ||
-    import.meta.env.GEMINI_BASE_URL ||
     "https://generativelanguage.googleapis.com";
-  const key =
-    import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
+  const key = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!key) {
+    return [];
+  }
+
   const url = `${base}/v1beta/models/gemini-1.5-pro:generateContent?key=${key}`;
+
+  const safeTail = (tailStates || [])
+    .map((s) => ({ ...s, epoch: asDate(s.epoch) }))
+    .filter((s) => isValidDate(s.epoch));
+
   const prompt = `You are an orbital analyst. Continue ISS OEM state vectors beyond the last OEM epoch.
 
 Input:
 - EME2000(J2000) ECI, km & km/s.
-- Last ${tailStates.length} states @ 240s:
+- Last ${safeTail.length} states @ 240s:
 ${JSON.stringify(
-  tailStates.map((s) => ({
-    epoch: s.epoch.toISOString().replace(".000Z", "Z"),
-    x: s.r.x,
-    y: s.r.y,
-    z: s.r.z,
-    xd: s.v.x,
-    yd: s.v.y,
-    zd: s.v.z,
-  })),
-  null,
-  2
-)}
+    safeTail.map((s) => ({
+      epoch: asDate(s.epoch).toISOString().replace(".000Z", "Z"),
+      x: s.r.x,
+      y: s.r.y,
+      z: s.r.z,
+      xd: s.v.x,
+      yd: s.v.y,
+      zd: s.v.z,
+    })),
+    null,
+    2
+  )}
 
 Task: Predict next ${nextMinutes} min @ 240s. JSON ONLY:
 {"frame":"EME2000","units":{"pos":"km","vel":"km/s"},"states":[{"epoch":"YYYY-DOYThh:mm:ss.sssZ","x":0,"y":0,"z":0,"xd":0,"yd":0,"zd":0}]}
 Rules: strict 240s steps, no extra text.`;
+
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-    }),
+    body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }] }),
   });
+
   const data = await res.json();
   const txt = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
   const i = txt.indexOf("{"),
@@ -213,8 +221,10 @@ Rules: strict 240s steps, no extra text.`;
     v: new THREE.Vector3(s.xd, s.yd, s.zd),
   }));
 }
+
 function useOEMsMergedPlusGemini(files, horizonMin = 180) {
   const [states, setStates] = useState(null);
+
   useEffect(() => {
     (async () => {
       try {
@@ -225,15 +235,24 @@ function useOEMsMergedPlusGemini(files, horizonMin = 180) {
         );
         const parsed = texts.flatMap(parseOEM);
         let combined = dedupeSort(parsed);
-        if (Math.abs(guessCadenceSec(combined) - 240) > 1)
+        if (Math.abs(guessCadenceSec(combined) - 240) > 1) {
           combined = resampleTo240(combined);
-        const tail = combined.slice(-6);
-        let ext = [];
-        try {
-          ext = await geminiPredict(horizonMin, tail);
-        } catch (e) {
-          console.warn("Gemini failed", e);
         }
+
+        const tail = combined
+          .slice(-6)
+          .map((s) => ({ ...s, epoch: asDate(s.epoch) }))
+          .filter((s) => isValidDate(s.epoch));
+
+        let ext = [];
+        const hasKey = !!import.meta.env.VITE_GEMINI_API_KEY;
+        if (hasKey && tail.length > 1) {
+          try {
+            ext = await geminiPredict(horizonMin, tail);
+          } catch {
+          }
+        }
+
         setStates(dedupeSort([...combined, ...ext]));
       } catch (e) {
         console.error(e);
@@ -241,8 +260,10 @@ function useOEMsMergedPlusGemini(files, horizonMin = 180) {
       }
     })();
   }, [JSON.stringify(files), horizonMin]);
+
   return states;
 }
+
 function LoaderOverlay() {
   const { progress, active } = useProgress();
   if (!active) return null;
@@ -252,10 +273,12 @@ function LoaderOverlay() {
     </Html>
   );
 }
+
 function Earth({ position }) {
   const root = useRef();
   const { scene, animations } = useGLTF("/earth.glb");
   const model = useMemo(() => SkeletonUtils.clone(scene), [scene]);
+
   useEffect(() => {
     if (!root.current) return;
     const box = new THREE.Box3().setFromObject(model);
@@ -263,18 +286,19 @@ function Earth({ position }) {
     const s = EARTH_TARGET_DIAMETER / (Math.max(size.x, size.y, size.z) || 1);
     root.current.scale.setScalar(s);
   }, [model]);
+
   const { actions } = useAnimations(animations, model);
   useEffect(() => {
     const list = Object.values(actions || {});
-    if (list.length) {
-      list.forEach((a) => a.reset().setLoop(THREE.LoopRepeat, Infinity).play());
-    }
+    if (list.length) list.forEach((a) => a.reset().setLoop(THREE.LoopRepeat, Infinity).play());
   }, [actions]);
+
   useFrame((_, dt) => {
     if (!actions || Object.keys(actions).length === 0) {
       if (root.current) root.current.rotation.y += EARTH_SPIN_SPEED * dt;
     }
   });
+
   useEffect(() => {
     model.traverse((o) => {
       if (!o.isMesh) return;
@@ -282,11 +306,13 @@ function Earth({ position }) {
       o.frustumCulled = false;
     });
   }, [model]);
+
   const tilt = [
     EARTH_TILT_AXIS === "x" ? toRad(EARTH_TILT_DEG) : 0,
     EARTH_TILT_AXIS === "y" ? toRad(EARTH_TILT_DEG) : 0,
     EARTH_TILT_AXIS === "z" ? toRad(EARTH_TILT_DEG) : 0,
   ];
+
   return (
     <group ref={root} position={position.toArray()}>
       <group rotation={tilt}>
@@ -295,10 +321,12 @@ function Earth({ position }) {
     </group>
   );
 }
+
 function CupolaModel() {
   const { scene } = useGLTF("/cupola.glb");
   return <primitive object={scene} scale={2} />;
 }
+
 function GroundTrack({ earthPos, scaleKmToScene, states }) {
   const pts = useMemo(() => {
     if (!states || !states.length) return [];
@@ -316,6 +344,7 @@ function GroundTrack({ earthPos, scaleKmToScene, states }) {
     }
     return arr;
   }, [states, earthPos, scaleKmToScene]);
+
   return pts.length > 1 ? (
     <Line
       points={pts}
@@ -329,9 +358,11 @@ function GroundTrack({ earthPos, scaleKmToScene, states }) {
     />
   ) : null;
 }
+
 function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
   const group = useRef();
   const { camera, gl, size } = useThree();
+
   const qPre = useMemo(() => {
     const e = new THREE.Euler(
       toRad(CUPOLA_PRE_PITCH_DEG),
@@ -343,14 +374,13 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
   }, []);
   const qTipAlign = useMemo(() => {
     const tipLocal =
-      TIP_AXIS === "y"
-        ? new THREE.Vector3(0, 1, 0)
-        : new THREE.Vector3(0, 0, 1);
+      TIP_AXIS === "y" ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
     return new THREE.Quaternion().setFromUnitVectors(
       tipLocal,
       new THREE.Vector3(0, 0, 1)
     );
   }, []);
+
   const cur = useRef({ inside: 1.1, eyeUp: 0.22, yaw: 0, pitch: 0 });
   const tgt = useRef({ inside: 1.1, eyeUp: 0.22, yaw: 0, pitch: 0 });
   const LIM = {
@@ -359,10 +389,11 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
     insideMin: 0.55,
     insideMax: 2.2,
   };
-  const LAMBDA = { rot: 4, pos: 3, dist: 2, camPos: 4, camRot: 6 };
+  const LAMBDA = { rot: 10, pos: 8, dist: 6 };
   const dragging = useRef(false);
   const doFrameFit = useRef(true);
   const cupolaRadiusWorld = useRef(null);
+
   useEffect(() => {
     gl.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
     const onDown = (e) => {
@@ -374,18 +405,18 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
     const onMove = (e) => {
       if (!dragging.current) return;
       tgt.current.yaw = THREE.MathUtils.clamp(
-        tgt.current.yaw - (e.movementX || 0) * 0.002,
+        tgt.current.yaw - (e.movementX || 0) * 0.003,
         -LIM.yaw,
         LIM.yaw
       );
       tgt.current.pitch = THREE.MathUtils.clamp(
-        tgt.current.pitch - (e.movementY || 0) * 0.002,
+        tgt.current.pitch - (e.movementY || 0) * 0.003,
         -LIM.pitch,
         LIM.pitch
       );
     };
     const onWheel = (e) => {
-      const delta = (e.deltaY > 0 ? 1 : -1) * 0.05;
+      const delta = (e.deltaY > 0 ? 1 : -1) * 0.08;
       tgt.current.inside = THREE.MathUtils.clamp(
         tgt.current.inside + delta,
         LIM.insideMin,
@@ -411,6 +442,7 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
       window.removeEventListener("keydown", onKey);
     };
   }, [gl.domElement]);
+
   function fitDistanceForRadius(r) {
     const vfov = THREE.MathUtils.degToRad(camera.fov);
     const aspect = size.width / size.height;
@@ -419,13 +451,16 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
     const dh = r / Math.tan(hfov / 2);
     return Math.max(dv, dh);
   }
+
   useFrame((_, dt) => {
     if (!states || !states.length || !group.current) return;
     const now = new Date();
     const { r, v } = interpRV(states, now);
+
     const z = r.clone().multiplyScalar(-1).normalize();
     const y = z.clone().cross(v).normalize();
     const x = y.clone().cross(z).normalize();
+
     const qLVLH = new THREE.Quaternion().setFromRotationMatrix(
       new THREE.Matrix4().makeBasis(x, y, z)
     );
@@ -433,6 +468,7 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
       new THREE.Vector3(0, 0, 1),
       toRad(CUPOLA_ROLL_FIX_DEG)
     );
+
     const rDraw = r.clone().setLength(r.length() + ALTITUDE_BUMP_KM);
     const posScene = rDraw.multiplyScalar(scaleKmToScene);
     const worldPos = new THREE.Vector3(
@@ -440,12 +476,14 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
       earthPos.y + posScene.z,
       earthPos.z + posScene.y
     );
+
     group.current.position.copy(worldPos);
     group.current.quaternion
       .copy(qLVLH)
       .multiply(qTipAlign)
       .multiply(qRollFix)
       .multiply(qPre);
+
     const baseForward = new THREE.Vector3(0, 0, 1).applyQuaternion(
       group.current.quaternion
     );
@@ -455,6 +493,7 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(
       group.current.quaternion
     );
+
     if (cupolaRadiusWorld.current == null) {
       const box = new THREE.Box3().setFromObject(group.current);
       const sizeW = box.getSize(new THREE.Vector3());
@@ -470,15 +509,18 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
       );
       doFrameFit.current = false;
     }
+
     const d = cur.current,
       t = tgt.current;
     d.yaw = THREE.MathUtils.damp(d.yaw, t.yaw, LAMBDA.rot, dt);
     d.pitch = THREE.MathUtils.damp(d.pitch, t.pitch, LAMBDA.rot, dt);
     d.eyeUp = THREE.MathUtils.damp(d.eyeUp, t.eyeUp, LAMBDA.pos, dt);
     d.inside = THREE.MathUtils.damp(d.inside, t.inside, LAMBDA.dist, dt);
+
     const qYaw = new THREE.Quaternion().setFromAxisAngle(up, d.yaw);
     const qPitch = new THREE.Quaternion().setFromAxisAngle(right, d.pitch);
     const qAim = new THREE.Quaternion().multiply(qYaw).multiply(qPitch);
+
     let forward = baseForward.clone().applyQuaternion(qAim).normalize();
     const dot = forward.dot(baseForward);
     if (dot < Math.cos(toRad(85))) {
@@ -489,47 +531,51 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
       );
       forward = forward.lerp(baseForward, blend).normalize();
     }
-    const eyeTarget = worldPos
+
+    const eye = worldPos
       .clone()
       .add(forward.clone().multiplyScalar(-(d.inside + 0.2)))
       .add(up.clone().multiplyScalar(d.eyeUp));
-    const lookTarget = worldPos.clone().add(forward.clone().multiplyScalar(120));
-    const alphaPos = 1 - Math.exp(-LAMBDA.camPos * dt);
-    camera.position.lerp(eyeTarget, alphaPos);
-    const m = new THREE.Matrix4().lookAt(camera.position, lookTarget, up);
-    const qTarget = new THREE.Quaternion().setFromRotationMatrix(m);
-    const alphaRot = 1 - Math.exp(-LAMBDA.camRot * dt);
-    camera.quaternion.slerp(qTarget, alphaRot);
+    const look = worldPos.clone().add(forward.clone().multiplyScalar(120));
+
+    camera.position.copy(eye);
+    camera.up.copy(up);
+    camera.lookAt(look);
+
     if (controlsRef?.current) controlsRef.current.enabled = false;
   });
+
   return (
     <group ref={group}>
       <CupolaModel />
     </group>
   );
 }
+
 export default function CupolaScene() {
   const controls = useRef();
   const [earthPos] = useState(() => EARTH_ABS_POS.clone());
   const scaleKmToScene = useMemo(() => EARTH_TARGET_DIAMETER / 2 / 6371, []);
+
   const OEM_FILES = [
     "iss/ISS.OEM_J2K_EPH22.02.13.xml",
     "iss/ISS.OEM_J2K_EPH22.02.15.xml",
     "iss/ISS.OEM_J2K_EPH22.02.18.xml",
     "iss/ISS.OEM_J2K_EPH22.02.20.xml",
   ];
+
   const states = useOEMsMergedPlusGemini(OEM_FILES, 180);
+
   useEffect(() => {
     if (controls.current) {
       controls.current.enableRotate = true;
       controls.current.enablePan = true;
       controls.current.enableZoom = true;
-      controls.current.enableDamping = true;
-      controls.current.dampingFactor = 0.06;
       controls.current.minDistance = 2;
       controls.current.maxDistance = 2000;
     }
   }, []);
+
   return (
     <div style={{ width: "100vw", height: "100vh", background: "#000" }}>
       <Canvas
@@ -546,22 +592,13 @@ export default function CupolaScene() {
         }}
       >
         <Stars
-          radius={4500}
-          depth={260}
-          count={18000}
-          factor={220}
+          radius={4000}
+          depth={200}
+          count={15000}
+          factor={90}
           saturation={1}
           fade
-          speed={6}
-        />
-        <Sparkles
-          count={2500}
-          size={8}
-          speed={1.6}
-          opacity={0.7}
-          scale={[5000, 5000, 5000]}
-          color="#ffffff"
-          noise={0.6}
+          speed={4}
         />
         <ambientLight intensity={0.6} />
         <hemisphereLight args={["#fff", "#667", 0.6]} />
@@ -578,6 +615,7 @@ export default function CupolaScene() {
           decay={2}
           color="#88bbff"
         />
+
         <Environment preset="studio" background={false} intensity={0.25}>
           <Lightformer
             form="rect"
@@ -603,6 +641,7 @@ export default function CupolaScene() {
             rotation={[0, Math.PI / 8, 0]}
           />
         </Environment>
+
         <Suspense fallback={<LoaderOverlay />}>
           <Earth position={earthPos} />
           {states && (
@@ -621,13 +660,8 @@ export default function CupolaScene() {
             </>
           )}
         </Suspense>
-        <OrbitControls
-          ref={controls}
-          target={[earthPos.x, earthPos.y, earthPos.z]}
-        />
-        <EffectComposer>
-          <Bloom intensity={0.18} luminanceThreshold={0.9} luminanceSmoothing={0.18} mipmapBlur />
-        </EffectComposer>
+
+        <OrbitControls ref={controls} target={[earthPos.x, earthPos.y, earthPos.z]} />
       </Canvas>
     </div>
   );

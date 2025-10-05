@@ -15,6 +15,8 @@ import HUD from "../../common/HUD";
 import useHydroMovementReal from "../../physics/useHydroMovementReal";
 import useVerticalHydroReal from "../../physics/useVerticalHydroReal";
 import { HYDRO_CONFIG } from "../../physics/hydroConfig";
+import { autoGenerateLights } from "../../assets/AutoLightGenarator.js";
+import { WaterController } from '../../assets/WaterShade.js';
 
 useGLTF.preload("/pool.glb");
 
@@ -52,6 +54,14 @@ function isSpaceshipNode(o) {
 
 function Pool({ onReady }) {
   const { scene } = useGLTF("/pool.glb");
+  useEffect(() => {
+    autoGenerateLights(
+        scene, 
+        2,            // offset
+        Math.PI / 6,  // angle
+        0.5           // penumbra
+    );
+}, [scene]);
   const readyOnce = useRef(false);
 
   useEffect(() => {
@@ -483,6 +493,7 @@ function StageInner() {
 
   return (
     <>
+    <WaterController /> 
       <ambientLight intensity={0.6} />
       <directionalLight position={[5, 5, 5]} intensity={1.2} />
       <Pool onReady={setWorld} />

@@ -1,8 +1,9 @@
-// src/components/stages/Stage3.jsx
 import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Environment, useGLTF } from "@react-three/drei";
+import { Environment, useGLTF, useAnimations } from "@react-three/drei";
 import * as THREE from "three";
+import { autoGenerateLights } from "../../assets/lightAutoGenarator";
+import { WaterController } from "../../assets/WaterShade.js";
 import { SimProvider, useSim } from "../../common/SimContext";
 import StageShell from "../../common/StageShell";
 import HUD from "../../common/HUD";
@@ -18,11 +19,15 @@ const PLAYER_RADIUS = 0.38;
 const HEAD_OFFSET = PLAYER_HEIGHT * 0.5;
 const CAM_MIN_Y = 1.75;
 const PAD = 0.01;
+const RING_POS = new THREE.Vector3(-5.489, 0, -7.946);
+const TRIGGER_DISTANCE = 3.0;
+const HOLD_TIME = 3.0;
 
 function isColliderNode(o) {
   const n = (o.name || "").toLowerCase();
   return n.includes("collision") || n.includes("collider") || n.startsWith("col_") || o.userData?.collider === true;
 }
+
 function isSpaceshipNode(o) {
   const name = (o.name || "").toLowerCase();
   const mat = (o.material?.name || "").toLowerCase();
@@ -30,37 +35,27 @@ function isSpaceshipNode(o) {
   const tag = (o.userData?.tag || "").toLowerCase();
   return name.includes("spaceship") || mat.includes("spaceship") || uvUD === "spaceship" || tag === "spaceship";
 }
-function pickDoorNode(scene) {
-  let door = null;
-  scene.traverse((o) => {
-    if (!o.isMesh) return;
-    const n = (o.name || "").toLowerCase();
-    const m = (o.material?.name || "").toLowerCase();
-    const t = (o.userData?.tag || "").toLowerCase();
-    if (!door && (n.includes("door") || m.includes("door") || t === "door")) door = o;
-  });
-  return door;
-}
 
 function Pool({ onReady }) {
+  const group = useRef();
   const { scene, animations } = useGLTF("/pool.glb");
+  const { actions, mixer } = useAnimations(animations, group);
   const readyOnce = useRef(false);
 
   useEffect(() => {
     if (readyOnce.current) return;
-
     scene.traverse((o) => {
       if (!o.isMesh) return;
-      if (isColliderNode(o)) o.visible = false;
+      const nm = (o.name || "").toLowerCase();
+      if (isColliderNode(o) || nm.includes("nasa") || nm.includes("pgt")) o.visible = false;
     });
     scene.updateMatrixWorld(true);
-
+    autoGenerateLights(scene, 2, Math.PI / 6, 0.5);
     let waterNode = null;
     scene.traverse((o) => {
       if (!o.isMesh) return;
       if ((o.name || "").toLowerCase() === "water") waterNode = o;
     });
-
     let xzBounds, yBounds;
     if (waterNode) {
       const wb = new THREE.Box3().setFromObject(waterNode);
@@ -71,7 +66,6 @@ function Pool({ onReady }) {
       xzBounds = { minX: world.min.x + PAD, maxX: world.max.x - PAD, minZ: world.min.z + PAD, maxZ: world.max.z - PAD };
       yBounds = { headMin: world.min.y + PAD + HEAD_OFFSET, headMax: world.max.y - PAD };
     }
-
     const spaceshipBoxes = [];
     scene.traverse((o) => {
       if (!o.isMesh) return;
@@ -79,47 +73,15 @@ function Pool({ onReady }) {
       o.updateWorldMatrix(true, true);
       spaceshipBoxes.push(new THREE.Box3().setFromObject(o));
     });
-
-    const doorMesh = pickDoorNode(scene);
-    let mixer = null;
-    const actions = {};
-    let doorPos = null;
-
-    if (doorMesh) {
-      const want = new Set(["open", "opened", "close", "closed"]);
-      const clips = (animations || []).filter((c) => want.has(c.name.toLowerCase()));
-      mixer = new THREE.AnimationMixer(doorMesh);
-      clips.forEach((clip) => {
-        const key = clip.name.toLowerCase();
-        const a = mixer.clipAction(clip, doorMesh);
-        a.clampWhenFinished = true;
-        a.loop = THREE.LoopOnce;
-        actions[key] = a;
-      });
-      if (actions["closed"]) {
-        const a = actions["closed"];
-        a.reset();
-        a.enabled = true;
-        a.play();
-        a.time = 0;
-        a.paused = true;
-      } else if (actions["opened"]) {
-        const a = actions["opened"];
-        a.reset();
-        a.enabled = true;
-        a.play();
-        a.time = a.getClip().duration;
-        a.paused = true;
-      }
-      doorPos = new THREE.Vector3();
-      doorMesh.getWorldPosition(doorPos);
-    }
-
-    onReady({ xzBounds, yBounds, spaceshipBoxes, doorMesh, doorPos, mixer, actions });
+    onReady({ xzBounds, yBounds, spaceshipBoxes, actions, mixer });
     readyOnce.current = true;
-  }, [scene, animations, onReady]);
+  }, [scene, onReady, actions, mixer]);
 
-  return <primitive object={scene} />;
+  return (
+    <group ref={group}>
+      <primitive object={scene} />
+    </group>
+  );
 }
 
 function expandBox(box, r, halfH) {
@@ -153,18 +115,28 @@ function blockBySpaceship(cur, proposed, boxes, radius, halfH) {
   return out;
 }
 
-function Player({ xzBounds, yBounds, spaceshipBoxes }) {
+function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
   const { camera, gl } = useThree();
   const { posRef, ballast, setBallast, setStageText } = useSim();
   const rig = useRef(null);
   const keys = useRef({});
   const headYRef = useRef(SPAWN_POS.y);
   const vyRef = useRef(0);
-  const tRef = useRef(0);
+  const tRef = useRef(0);  // ✅ tRef 추가
   const hydroMove = useHydroMovementReal(HYDRO_CONFIG);
   const verticalMove = useVerticalHydroReal(HYDRO_CONFIG);
   const ready = useRef(false);
   const halfH = PLAYER_HEIGHT * 0.5;
+  const headWorld = useRef(new THREE.Vector3()).current;
+  const phaseRef = useRef("idle");
+  const holdRef = useRef(0);
+  const lastPctRef = useRef(-1);
+
+  const showBlock = (title, lines = []) => {
+    const h = `【${title}】`;
+    const body = lines.map((l) => `• ${l}`).join("\n");
+    setStageText([h, body].filter(Boolean).join("\n\n"));
+  };
 
   useEffect(() => {
     if (!rig.current) return;
@@ -174,7 +146,12 @@ function Player({ xzBounds, yBounds, spaceshipBoxes }) {
     rig.current.position.copy(startCenter);
     camera.position.set(0, HEAD_OFFSET, 0);
     rig.current.add(camera);
-    if (setStageText) setStageText("WASD/Shift/Space E/R F");
+    showBlock("INGRESS DRILL", [
+      "Move: WASD",
+      "Buoyancy: E/R",
+      "Action: F near the red ring",
+      "Approach the ring to start",
+    ]);
     ready.current = true;
   }, [xzBounds, setStageText, camera]);
 
@@ -184,13 +161,79 @@ function Player({ xzBounds, yBounds, spaceshipBoxes }) {
     dom.style.outline = "none";
     const focus = () => dom.focus();
     dom.addEventListener("pointerdown", focus);
+
     const kd = (e) => {
       keys.current[e.code] = true;
       if (e.code === "KeyE") setBallast((v) => Math.max(0, v - 1));
       if (e.code === "KeyR") setBallast((v) => v + 1);
+      if (e.code === "KeyF") {
+        camera.getWorldPosition(headWorld);
+        const dist = headWorld.distanceTo(RING_POS);
+        if (dist > TRIGGER_DISTANCE) return;
+
+        if (phaseRef.current === "idle") {
+          phaseRef.current = "purpose1";
+          showBlock("WHY THIS DRILL", [
+            "Avoid snags and hinge injuries",
+            "Refine buoyancy and body alignment",
+            "Confirm comms before tight entry",
+            "Press F to continue",
+          ]);
+          return;
+        }
+
+        if (phaseRef.current === "purpose1") {
+          phaseRef.current = "purpose2";
+          showBlock("CONTEXT", [
+            "Exterior → Interior transition",
+            "Hold neutral trim, minimize wake",
+            "Protect seals and mechanisms",
+            "Keep tools/tethers clear",
+            "Press F for checklist",
+          ]);
+          return;
+        }
+
+        if (phaseRef.current === "purpose2") {
+          phaseRef.current = "prepare";
+          showBlock("CHECKLIST", [
+            "Stabilize within 3 m of the ring",
+            "Trim neutral with E/R, square to hatch",
+            "Hands clear of hinges/seals",
+            "Path clear, comms good",
+            "Press F to move to handle",
+          ]);
+          return;
+        }
+
+        if (phaseRef.current === "prepare") {
+          phaseRef.current = "handle";
+          holdRef.current = 0;
+          lastPctRef.current = -1;
+          showBlock("HANDLE", [
+            "Hold F for 3 s to actuate",
+            "Stay on centerline, neutral trim",
+            "Hold F now to open the hatch",
+          ]);
+          return;
+        }
+      }
       if (/Arrow|Space/.test(e.code)) e.preventDefault();
     };
-    const ku = (e) => { keys.current[e.code] = false; };
+
+    const ku = (e) => {
+      keys.current[e.code] = false;
+      if (e.code === "KeyF" && phaseRef.current === "handle") {
+        holdRef.current = 0;
+        lastPctRef.current = -1;
+        showBlock("HANDLE", [
+          "Hold F for 3 s to actuate",
+          "Stay centered and neutral",
+          "Hold F again to continue",
+        ]);
+      }
+    };
+
     document.addEventListener("keydown", kd, true);
     document.addEventListener("keyup", ku, true);
     const clear = () => (keys.current = {});
@@ -201,11 +244,11 @@ function Player({ xzBounds, yBounds, spaceshipBoxes }) {
       document.removeEventListener("keyup", ku, true);
       window.removeEventListener("blur", clear);
     };
-  }, [gl, setBallast]);
+  }, [gl, setBallast, camera, headWorld]);
 
   useFrame((_, dt) => {
     if (!ready.current || !rig.current) return;
-    tRef.current += dt;
+    tRef.current += dt;  // ✅ tRef 업데이트
 
     const baseHeadMin = yBounds.headMin ?? -Infinity;
     const baseHeadMax = yBounds.headMax ?? Infinity;
@@ -219,12 +262,12 @@ function Player({ xzBounds, yBounds, spaceshipBoxes }) {
       weightCount: ballast,
       bounds: { minY: headMin, maxY: headMax },
       speedXZ: 0,
-      t: tRef.current,
+      t: tRef.current,  // ✅ t 파라미터 추가
     });
-    vyRef.current = vyRes.newVy;
 
-    let headTarget = THREE.MathUtils.clamp(vyRes.newY, headMin, headMax);
+    vyRef.current = vyRes.newVy;  // ✅ vyRef 업데이트 추가
 
+    const headTarget = THREE.MathUtils.clamp(vyRes.newY, headMin, headMax);
     const d = hydroMove.step({
       dt,
       camera,
@@ -234,23 +277,90 @@ function Player({ xzBounds, yBounds, spaceshipBoxes }) {
 
     const cur = rig.current.position.clone();
     const proposed = cur.clone();
-
     if (Number.isFinite(d.x)) proposed.x = cur.x + d.x;
     if (Number.isFinite(d.y)) proposed.z = cur.z + d.y;
     proposed.y = headTarget - HEAD_OFFSET;
 
     clampXZInside(proposed, xzBounds, PLAYER_RADIUS);
-
     const blocked = blockBySpaceship(cur, proposed, spaceshipBoxes, PLAYER_RADIUS, halfH);
-
     rig.current.position.copy(blocked);
+
     headYRef.current = blocked.y + HEAD_OFFSET;
     posRef.current = { x: blocked.x, y: blocked.y + HEAD_OFFSET, z: blocked.z };
+
+    const headWorldPos = new THREE.Vector3();
+    camera.getWorldPosition(headWorldPos);
+    const dist = headWorldPos.distanceTo(RING_POS);
+
+    if (phaseRef.current === "handle") {
+      if (dist <= TRIGGER_DISTANCE && keys.current["KeyF"]) {
+        holdRef.current += dt;
+        const pct = Math.min(100, Math.floor((holdRef.current / HOLD_TIME) * 100));
+        if (pct !== lastPctRef.current) {
+          const filled = Math.round((pct / 100) * 12);
+          const bar = "█".repeat(filled) + " ".repeat(12 - filled);
+          showBlock("HANDLE", [`[${bar}] ${pct}%`, "Keep holding F, stay centered"]);
+          lastPctRef.current = pct;
+        }
+        if (holdRef.current >= HOLD_TIME) {
+          const openA = poolAnim?.actions?.open || poolAnim?.actions?.Open;
+          const openedA = poolAnim?.actions?.opened || poolAnim?.actions?.Opened;
+          phaseRef.current = "opening";
+          holdRef.current = 0;
+          lastPctRef.current = -1;
+          showBlock("HATCH OPENING", [
+            "Hold position; avoid seals/hinges",
+            "Centerline only; small corrections",
+          ]);
+          if (openA) {
+            openA.reset();
+            openA.clampWhenFinished = true;
+            openA.setLoop(THREE.LoopOnce, 1);
+            openA.play();
+            const onFinished = () => {
+              if (openedA) {
+                openedA.reset();
+                openedA.clampWhenFinished = true;
+                openedA.setLoop(THREE.LoopOnce, 1);
+                openedA.play();
+              }
+              phaseRef.current = "ingress";
+              showBlock("INGRESS", [
+                "Glide through slowly, stay centered",
+                "Protect suit, tethers, cameras",
+                "Clear the threshold and stabilize",
+                "Training complete",
+              ]);
+              poolAnim?.mixer?.removeEventListener("finished", onFinished);
+              setTimeout(() => onEnter && onEnter(), 2200);
+            };
+            poolAnim?.mixer?.addEventListener("finished", onFinished);
+          } else {
+            phaseRef.current = "ingress";
+            showBlock("INGRESS", [
+              "Glide through slowly, stay centered",
+              "Protect suit, tethers, cameras",
+              "Clear the threshold and stabilize",
+              "Training complete",
+            ]);
+            setTimeout(() => onEnter && onEnter(), 2200);
+          }
+        }
+      } else if (holdRef.current > 0) {
+        holdRef.current = 0;
+        lastPctRef.current = -1;
+        showBlock("HANDLE", [
+          "Hold F for 3 s to actuate",
+          "Stay centered and neutral",
+          "Hold F again to continue",
+        ]);
+      }
+    }
   });
 
   return (
     <group ref={rig}>
-      <mesh visible={false} position={[0, 0, 0]}>
+      <mesh visible={false}>
         <capsuleGeometry args={[PLAYER_RADIUS, PLAYER_HEIGHT - 2 * PLAYER_RADIUS, 8, 16]} />
         <meshBasicMaterial transparent opacity={0} />
       </mesh>
@@ -258,115 +368,44 @@ function Player({ xzBounds, yBounds, spaceshipBoxes }) {
   );
 }
 
-function StageInner() {
+function StageInner({ onEnter }) {
   const [world, setWorld] = useState(null);
   const onReady = useCallback((data) => setWorld(data), []);
-  const { posRef } = useSim();
-
-  const doorStateRef = useRef("closed");
-  const busyRef = useRef(false);
-  const fHeld = useRef(false);
-  const fEdge = useRef(false);
-
-  useEffect(() => {
-    const kd = (e) => {
-      if (e.code === "KeyF") {
-        if (!fHeld.current) fEdge.current = true;
-        fHeld.current = true;
-      }
-    };
-    const ku = (e) => {
-      if (e.code === "KeyF") fHeld.current = false;
-    };
-    document.addEventListener("keydown", kd, true);
-    document.addEventListener("keyup", ku, true);
-    window.addEventListener("keydown", kd, true);
-    window.addEventListener("keyup", ku, true);
-    return () => {
-      document.removeEventListener("keydown", kd, true);
-      document.removeEventListener("keyup", ku, true);
-      window.removeEventListener("keydown", kd, true);
-      window.removeEventListener("keyup", ku, true);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!world?.mixer) return;
-    const onFinished = (e) => {
-      const name = e.action.getClip().name.toLowerCase();
-      if (name === "open") {
-        doorStateRef.current = "open";
-        if (world.actions["opened"]) {
-          const a = world.actions["opened"];
-          a.reset(); a.enabled = true; a.play(); a.time = a.getClip().duration; a.paused = true;
-        }
-      }
-      if (name === "close") {
-        doorStateRef.current = "closed";
-        if (world.actions["closed"]) {
-          const a = world.actions["closed"];
-          a.reset(); a.enabled = true; a.play(); a.time = 0; a.paused = true;
-        }
-      }
-      busyRef.current = false;
-    };
-    world.mixer.addEventListener("finished", onFinished);
-    return () => world.mixer.removeEventListener("finished", onFinished);
-  }, [world]);
-
-  useFrame((_, dt) => {
-    if (!world?.doorMesh) return;
-    if (world.mixer) world.mixer.update(dt);
-
-    const doorPos = world.doorPos || new THREE.Vector3();
-    const playerPos = new THREE.Vector3(posRef.current.x, posRef.current.y, posRef.current.z);
-    const dist = playerPos.distanceTo(doorPos);
-    const near = dist < 3.5;
-
-    if (fEdge.current && near && world.actions && !busyRef.current) {
-      if (doorStateRef.current === "closed" && world.actions["open"]) {
-        Object.values(world.actions).forEach((a) => a.stop && a.stop());
-        const a = world.actions["open"];
-        a.reset(); a.enabled = true; a.paused = false; a.play();
-        doorStateRef.current = "opening";
-        busyRef.current = true;
-      } else if (doorStateRef.current === "open" && world.actions["close"]) {
-        Object.values(world.actions).forEach((a) => a.stop && a.stop());
-        const a = world.actions["close"];
-        a.reset(); a.enabled = true; a.paused = false; a.play();
-        doorStateRef.current = "closing";
-        busyRef.current = true;
-      }
-    }
-    fEdge.current = false;
-  });
-
   return (
     <>
       <ambientLight intensity={0.6} />
       <directionalLight position={[5, 5, 5]} intensity={1.2} />
       <Pool onReady={onReady} />
       {world && (
-        <Player
-          xzBounds={world.xzBounds}
-          yBounds={world.yBounds}
-          spaceshipBoxes={world.spaceshipBoxes}
-        />
+        <>
+          <Player
+            xzBounds={world.xzBounds}
+            yBounds={world.yBounds}
+            spaceshipBoxes={world.spaceshipBoxes}
+            poolAnim={{ actions: world.actions, mixer: world.mixer }}
+            onEnter={onEnter}
+          />
+          <WaterController />
+        </>
       )}
+      <mesh position={RING_POS} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.8, 0.02, 16, 64]} />
+        <meshStandardMaterial color="#ff4040" emissive="#ff4040" emissiveIntensity={1.3} roughness={0.35} />
+      </mesh>
     </>
   );
 }
 
-export default function Stage3() {
+export default function Stage3({ onEnter }) {
   return (
     <SimProvider initialBallast={HYDRO_CONFIG.ballastKg}>
       <StageShell
         camera={{ position: [SPAWN_POS.x, SPAWN_POS.y, SPAWN_POS.z], fov: 75 }}
         envPreset="warehouse"
-        title={<HUD title="Training Stage" extra={null} />}
+        title={<HUD title="Hatch Ingress Training" extra={null} />}
       >
         <Suspense fallback={null}>
-          <StageInner />
+          <StageInner onEnter={onEnter} />
           <Environment preset="warehouse" />
         </Suspense>
       </StageShell>
