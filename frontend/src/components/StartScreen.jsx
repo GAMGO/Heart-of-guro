@@ -49,10 +49,10 @@ export default function StartScreen({ onStart, onJump }) {
 
       {/* 스테이지 바로 점프(스타일 클래스 .stageMap 사용) */}
       <div className="stageMap">
-        <button onClick={() => onJump("stage1")}>Stage 1</button>
-        <button onClick={() => onJump("stage2")}>Stage 2</button>
-        <button onClick={() => onJump("stage3")}>Stage 3</button>
-        <button onClick={() => onJump("cupola")}>Cupola</button>
+        <button onClick={() => onJump("stage1")}>Mission 1</button>
+        <button onClick={() => onJump("stage2")}>Mission 2</button>
+        <button onClick={() => onJump("stage3")}>Mission 3</button>
+        <button onClick={() => onJump("cupola")}>ISS Cupola</button>
       </div>
 
       <div className="acrostic">

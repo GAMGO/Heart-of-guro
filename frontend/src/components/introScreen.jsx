@@ -2,10 +2,10 @@ import React, { useEffect, useState } from "react";
 import "../styles/IntroScreen.css";
 
 const MONOLOGUE = [
-  { name: "Buzz Joe", text: "하........." },
-  { name: "Buzz Joe", text: "나도...... " },
-  { name: "Buzz Joe", text: "어딘가에 쓰이고 싶다......" },
-  { name: "Buzz Joe", text: "아악...........!!!!!" }
+  { name: "Buzz Joe", text: "Uhg......." },
+  { name: "Buzz Joe", text: "I..... " },
+  { name: "Buzz Joe", text: "I want to be a person of value somewhere......" },
+  { name: "Buzz Joe", text: "Ah..........!!!!!" }
 ];
 
 export default function IntroScreen({ onFinish }) {
