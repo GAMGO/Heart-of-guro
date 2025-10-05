@@ -14,10 +14,10 @@ export default function App() {
 
   // 스테이지별 컴포넌트 매핑
   const stageMap = {
-    stage1: <Stage1 ref={stageRef} />,
-    stage2: <Stage2 ref={stageRef} />,
-    stage3: <Stage3 ref={stageRef} />,
-    cupola: <Cupola ref={stageRef} />,
+    stage1: <Stage1 ref={"Stage1"} />,
+    stage2: <Stage2 ref={"Stage2"} />,
+    stage3: <Stage3 ref={"Stage3"} />,
+    cupola: <Cupola ref={"Cupola"} />,
   };
 
   const rootClass = scene === "stage" && stage === "stage3" ? "stage-stage3" : "";
@@ -29,7 +29,7 @@ export default function App() {
         <StartScreen
           onStart={(selected) => {
             setStage(selected || "stage1");
-            setScene("stage");
+            setScene("introScreen");
           }}
           onStage={(s) => {
             setStage(s);
