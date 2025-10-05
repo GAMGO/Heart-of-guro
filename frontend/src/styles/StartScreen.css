@@ -37,7 +37,6 @@ body {
   box-sizing: border-box;
 }
 
-/* ✅ JS 기반 타이핑 효과 사용 → .typewriter 관련 CSS 제거됨 */
 
 /* 중앙의 Start 버튼 */
 .start-btn {
