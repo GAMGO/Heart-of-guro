@@ -47,13 +47,43 @@ html, body {
   filter: brightness(1);
 }
 
+.dialogue {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 9%;
+  background: rgba(8, 10, 16, 0.9);
+  color: white;
+  padding: 35px;
+  font-size: 20px;
+  font-family: "Audiowide", sans-serif;
+  z-index: 10;
+  overflow: hidden;
+}
+
+.dialogue-name {
+  font-family: "Audiowide", sans-serif;
+  letter-spacing: .6px;
+  margin-bottom: 5px;
+  color: #9ab6ff;
+  font-size: 18px;
+}
+
+.dialogue-text {
+  font-size: 20px;
+  font-family: "Audiowide", sans-serif;
+  white-space: pre-line;
+  letter-spacing: 0.5px;
+}
+
 .next-button {
   position: absolute;
-  bottom: 10px;
-  right: 45px;
+  bottom: 2px;
+  right: 30px;
   display: block;
-  padding: 10px 10px;
-  font-size: 1.2rem;
+  padding: 9px 18px;
+  font-size: 1rem;
   font-family: "Audiowide", sans-serif;
   color: #222;
   background: var(--accent);
@@ -61,7 +91,7 @@ html, body {
   border-radius: 6px;
   cursor: pointer;
   transition: transform 0.2s ease, background 0.2s ease;
-  margin-bottom: 80px; /* 하단 여백 */
+  margin-bottom: 50px; /* 하단 여백 */
   z-index: 10;
   box-shadow: 3px 4px 5px rgba(120, 166, 255, 0.9);
 }

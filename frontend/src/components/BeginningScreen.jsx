@@ -2,32 +2,49 @@ import React, { useEffect, useState } from "react";
 import "../styles/BeginningScreen.css";
 
 export default function BeginningScreen({ onFinish }) {
-  const [showNewspaper, setShowNewspaper] = useState(false); // 신문 등장 제어
-  const [fadeBright, setFadeBright] = useState(false);       // 밝아짐 제어
-  const [showNext, setShowNext] = useState(false);           // Next 버튼 표시 제어
+  const [showNewspaper, setShowNewspaper] = useState(false); 
+  const [fadeBright, setFadeBright] = useState(false);       
+  const [showDialogue, setShowDialogue] = useState(false);   
+  const [displayText, setDisplayText] = useState("");        
+  const [showApply, setShowApply] = useState(false);        
 
   useEffect(() => {
     const timers = [];
 
-    // 📰 1️⃣ 신문 등장
     timers.push(setTimeout(() => setShowNewspaper(true), 1000));
 
-    // ☀️ 2️⃣ 신문 밝아지기 시작
     timers.push(setTimeout(() => setFadeBright(true), 2000));
 
-    // ⏳ 3️⃣ 밝아진 후 2.5초 뒤 Next 버튼 표시
-    timers.push(setTimeout(() => setShowNext(true), 4500));
+    timers.push(setTimeout(() => setShowDialogue(true), 4000));
 
-    // ❌ 자동 전환은 제거! (onFinish 실행 없음)
+    timers.push(setTimeout(() => startTyping(), 4100));
+
+    timers.push(setTimeout(() => setShowApply(true), 8000));
+
     return () => timers.forEach(clearTimeout);
   }, []);
 
+  const startTyping = () => {
+    const text = "이거다...!! 언젠가 우주에서 살아야한다면 내가 앞장서고 싶어 !!";
+    let index = 0;
+    setDisplayText("");
+
+    setDisplayText(text.charAt(index));
+
+  const interval = setInterval(() => {
+    setDisplayText((prev) => prev + text.charAt(index));
+    index++;
+
+    if (index >= text.length) {
+      clearInterval(interval);
+    }
+  }, 60);
+};
+
   return (
     <div className="beginning-container">
-      {/* 어두운 배경 */}
       <img src="/back.png" alt="background" className="background" />
 
-      {/* 신문 이미지 */}
       {showNewspaper && (
         <img
           src="/newspaper.png"
@@ -36,10 +53,16 @@ export default function BeginningScreen({ onFinish }) {
         />
       )}
 
-      {/* 버튼 — 직접 눌러야 전환 */}
-      {showNext && (
+      {showDialogue && (
+        <div className="dialogue fade-in">
+          <p className="dialogue-name">Buzz Joe</p>
+          <p className="dialogue-text">{displayText}</p>
+        </div>
+      )}
+
+      {showApply && (
         <button className="next-button fade-up" onClick={onFinish}>
-          Let's go challange!
+          🚀 Let's Challenge
         </button>
       )}
     </div>

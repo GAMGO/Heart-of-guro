@@ -1,4 +1,3 @@
-// src/components/StartScreen.jsx
 import React, { useState, useEffect } from "react";
 import "../styles/StartScreen.css";
 
@@ -9,14 +8,22 @@ export default function StartScreen({ onStart, onJump }) {
     { bold: "S", text: "tories" },
     { bold: "A", text: "pp" },
   ];
+
   const [displayedLines, setDisplayedLines] = useState(["", "", "", ""]);
+  const [showStartButton, setShowStartButton] = useState(false);
 
   useEffect(() => {
     let lineIndex = 0;
     let charIndex = 0;
+
     const typeNextChar = () => {
-      if (lineIndex >= lines.length) return;
+      if (lineIndex >= lines.length) {
+        setTimeout(() => setShowStartButton(true), 1500);
+        return;
+      }
+
       const { bold, text } = lines[lineIndex];
+
       if (charIndex === 0) {
         setDisplayedLines((prev) => {
           const updated = [...prev];
@@ -39,14 +46,17 @@ export default function StartScreen({ onStart, onJump }) {
         setTimeout(typeNextChar, 200);
       }
     };
+
     typeNextChar();
   }, []);
 
   return (
     <div className="start-screen">
-      {/* 기본 시작: stage1로 인트로 → 스테이지 진입 */}
-      <button className="start-btn" onClick={() => onStart("stage1")}>START</button>
-
+      {showStartButton && (
+        <button className="start-btn" onClick={() => onStart("stage1")}>
+          START
+        </button>
+      )}
       <div className="acrostic">
         {displayedLines.map((html, i) => (
           <p key={i} dangerouslySetInnerHTML={{ __html: html }} />
