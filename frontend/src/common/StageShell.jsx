@@ -51,7 +51,7 @@ export default function StageShell({
             whiteSpace: "pre-line",
           }}
         >
-          클릭해서 시작{"\n"}(WASD / Space·Shift / E·R)
+          CLICK TO START{"\n"}(WASD / Space·Shift / E·R)
         </div>
       )}
 
