@@ -122,6 +122,7 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
   const keys = useRef({});
   const headYRef = useRef(SPAWN_POS.y);
   const vyRef = useRef(0);
+  const tRef = useRef(0);  // ✅ tRef 추가
   const hydroMove = useHydroMovementReal(HYDRO_CONFIG);
   const verticalMove = useVerticalHydroReal(HYDRO_CONFIG);
   const ready = useRef(false);
@@ -247,6 +248,7 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
 
   useFrame((_, dt) => {
     if (!ready.current || !rig.current) return;
+    tRef.current += dt;  // ✅ tRef 업데이트
 
     const baseHeadMin = yBounds.headMin ?? -Infinity;
     const baseHeadMax = yBounds.headMax ?? Infinity;
@@ -260,7 +262,10 @@ function Player({ xzBounds, yBounds, spaceshipBoxes, poolAnim, onEnter }) {
       weightCount: ballast,
       bounds: { minY: headMin, maxY: headMax },
       speedXZ: 0,
+      t: tRef.current,  // ✅ t 파라미터 추가
     });
+
+    vyRef.current = vyRes.newVy;  // ✅ vyRef 업데이트 추가
 
     const headTarget = THREE.MathUtils.clamp(vyRes.newY, headMin, headMax);
     const d = hydroMove.step({
