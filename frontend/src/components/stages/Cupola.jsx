@@ -14,11 +14,9 @@ import {
 import * as THREE from "three";
 import { SkeletonUtils } from "three-stdlib";
 
-// ---- Asset preloads (public/ 경로 기준) ----
 useGLTF.preload("/earth.glb");
 useGLTF.preload("/cupola.glb");
 
-// ---- Constants ----
 const EARTH_TARGET_DIAMETER = 800.0;
 const EARTH_SPIN_SPEED = 0.12;
 const EARTH_ABS_POS = new THREE.Vector3(0, 0, 0);
@@ -33,7 +31,7 @@ const CUPOLA_PRE_ROLL_DEG = 0;
 const CUPOLA_ROLL_FIX_DEG = 0;
 const ALTITUDE_BUMP_KM = 2000;
 
-// ---- Math / orbit helpers ----
+
 function gmstRadians(date) {
   const JD = date.getTime() / 86400000 + 2440587.5;
   const T = (JD - 2451545) / 36525;
@@ -145,7 +143,7 @@ function interpRV(states, t) {
     const end = T >= +states.at(-1).epoch;
     const s = end ? states.at(-1) : states[0];
     return { r: s.r.clone(), v: s.v.clone() };
-    }
+  }
   const s0 = states[i],
     s1 = states[i + 1],
     h = (+s1.epoch - +s0.epoch) / 1000,
@@ -164,18 +162,15 @@ function interpRV(states, t) {
   };
 }
 
-// ---- Date safety helpers ----
 const asDate = (d) => (d instanceof Date ? d : new Date(d));
 const isValidDate = (d) => Number.isFinite(+asDate(d));
 
-// ---- Gemini predictor (키 없으면 조용히 스킵) ----
 async function geminiPredict(nextMinutes, tailStates) {
   const base =
     import.meta.env.VITE_GEMINI_BASE_URL ||
     "https://generativelanguage.googleapis.com";
   const key = import.meta.env.VITE_GEMINI_API_KEY;
   if (!key) {
-    // 키 없을 때는 조용히 스킵
     return [];
   }
 
@@ -191,18 +186,18 @@ Input:
 - EME2000(J2000) ECI, km & km/s.
 - Last ${safeTail.length} states @ 240s:
 ${JSON.stringify(
-  safeTail.map((s) => ({
-    epoch: asDate(s.epoch).toISOString().replace(".000Z", "Z"),
-    x: s.r.x,
-    y: s.r.y,
-    z: s.r.z,
-    xd: s.v.x,
-    yd: s.v.y,
-    zd: s.v.z,
-  })),
-  null,
-  2
-)}
+    safeTail.map((s) => ({
+      epoch: asDate(s.epoch).toISOString().replace(".000Z", "Z"),
+      x: s.r.x,
+      y: s.r.y,
+      z: s.r.z,
+      xd: s.v.x,
+      yd: s.v.y,
+      zd: s.v.z,
+    })),
+    null,
+    2
+  )}
 
 Task: Predict next ${nextMinutes} min @ 240s. JSON ONLY:
 {"frame":"EME2000","units":{"pos":"km","vel":"km/s"},"states":[{"epoch":"YYYY-DOYThh:mm:ss.sssZ","x":0,"y":0,"z":0,"xd":0,"yd":0,"zd":0}]}
@@ -227,7 +222,6 @@ Rules: strict 240s steps, no extra text.`;
   }));
 }
 
-// ---- OEM 합치기 + (옵션) Gemini 확장 ----
 function useOEMsMergedPlusGemini(files, horizonMin = 180) {
   const [states, setStates] = useState(null);
 
@@ -250,14 +244,12 @@ function useOEMsMergedPlusGemini(files, horizonMin = 180) {
           .map((s) => ({ ...s, epoch: asDate(s.epoch) }))
           .filter((s) => isValidDate(s.epoch));
 
-        // 키가 있을 때만 호출
         let ext = [];
         const hasKey = !!import.meta.env.VITE_GEMINI_API_KEY;
         if (hasKey && tail.length > 1) {
           try {
             ext = await geminiPredict(horizonMin, tail);
           } catch {
-            // 조용히 무시
           }
         }
 
@@ -272,7 +264,6 @@ function useOEMsMergedPlusGemini(files, horizonMin = 180) {
   return states;
 }
 
-// ---- Small UI helpers ----
 function LoaderOverlay() {
   const { progress, active } = useProgress();
   if (!active) return null;
@@ -283,7 +274,6 @@ function LoaderOverlay() {
   );
 }
 
-// ---- Earth model ----
 function Earth({ position }) {
   const root = useRef();
   const { scene, animations } = useGLTF("/earth.glb");
@@ -332,13 +322,11 @@ function Earth({ position }) {
   );
 }
 
-// ---- Cupola model ----
 function CupolaModel() {
   const { scene } = useGLTF("/cupola.glb");
   return <primitive object={scene} scale={2} />;
 }
 
-// ---- Ground track line ----
 function GroundTrack({ earthPos, scaleKmToScene, states }) {
   const pts = useMemo(() => {
     if (!states || !states.length) return [];
@@ -371,7 +359,6 @@ function GroundTrack({ earthPos, scaleKmToScene, states }) {
   ) : null;
 }
 
-// ---- Cupola ISS (camera-on-cupola) ----
 function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
   const group = useRef();
   const { camera, gl, size } = useThree();
@@ -470,7 +457,6 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
     const now = new Date();
     const { r, v } = interpRV(states, now);
 
-    // Local LVLH
     const z = r.clone().multiplyScalar(-1).normalize();
     const y = z.clone().cross(v).normalize();
     const x = y.clone().cross(z).normalize();
@@ -483,7 +469,6 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
       toRad(CUPOLA_ROLL_FIX_DEG)
     );
 
-    // Slightly higher to see earth nicely
     const rDraw = r.clone().setLength(r.length() + ALTITUDE_BUMP_KM);
     const posScene = rDraw.multiplyScalar(scaleKmToScene);
     const worldPos = new THREE.Vector3(
@@ -509,7 +494,6 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
       group.current.quaternion
     );
 
-    // One-time fit
     if (cupolaRadiusWorld.current == null) {
       const box = new THREE.Box3().setFromObject(group.current);
       const sizeW = box.getSize(new THREE.Vector3());
@@ -526,7 +510,6 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
       doFrameFit.current = false;
     }
 
-    // Smooth camera
     const d = cur.current,
       t = tgt.current;
     d.yaw = THREE.MathUtils.damp(d.yaw, t.yaw, LAMBDA.rot, dt);
@@ -569,7 +552,6 @@ function CupolaISS({ earthPos, scaleKmToScene, states, controlsRef }) {
   );
 }
 
-// ---- Main Scene ----
 export default function CupolaScene() {
   const controls = useRef();
   const [earthPos] = useState(() => EARTH_ABS_POS.clone());
