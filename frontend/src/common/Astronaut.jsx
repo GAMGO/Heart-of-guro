@@ -5,8 +5,8 @@ import * as THREE from "three";
 
 export default function Astronaut({
   spawn = new THREE.Vector3(0, 1.75, 0),
-  headOffset = 0.85,
-  moveSpeed = 4.0,
+  headOffset = 10.0,
+  moveSpeed = 10.0,
 }) {
   const { camera } = useThree();
   const posRef = useRef(spawn.clone());
@@ -31,14 +31,14 @@ export default function Astronaut({
     camera.getWorldDirection(forward);
     forward.y = 0;
     forward.normalize();
-    const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+    const right = new THREE.Vector3()
+      .crossVectors(forward, new THREE.Vector3(0, 1, 0))
+      .normalize();
 
     if (keys.current["KeyW"]) dir.add(forward);
     if (keys.current["KeyS"]) dir.sub(forward);
     if (keys.current["KeyA"]) dir.sub(right);
     if (keys.current["KeyD"]) dir.add(right);
-    if (keys.current["Space"]) dir.y += 1; // 상승
-    if (keys.current["ShiftLeft"] || keys.current["ShiftRight"]) dir.y -= 1; // 하강
 
     if (dir.lengthSq() > 0) {
       dir.normalize().multiplyScalar(moveSpeed * dt);
