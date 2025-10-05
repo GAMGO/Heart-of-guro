@@ -25,13 +25,10 @@ export default function useVerticalHydroReal(config = {}) {
     maxYPadding: 0.25,
     microCurrentN: 0.08,
     floorNudge: 0.02,
-
-    // 🔹 세밀한 중성 부력 조정 파라미터
-    neutralForceN: 1.5, // 중성 데드밴드 범위
-    neutralSpeedEPS: 0.02, // 중성일 때 속도 클램프 기준
-    neutralTrimN: 0.0, // 🔸 사용자 조정값 (+면 양성, -면 음성)
+    neutralForceN: 1.5,
+    neutralSpeedEPS: 0.02,
+    neutralTrimN: 0.0,
   };
-
   Object.assign(C, config || {});
 
   function stepY({ dt, y, vy, weightCount, bounds, speedXZ = 0, t = 0 }) {
@@ -39,27 +36,17 @@ export default function useVerticalHydroReal(config = {}) {
 
     const surfaceY_world = C.waterSurfaceY ?? y + 5;
     const depthWorld = Math.max(0, surfaceY_world - y);
-    const depthMeters = Math.min(
-      depthWorld * C.metersPerWorldUnit,
-      C.poolDepthMeters
-    );
+    const depthMeters = Math.min(depthWorld * C.metersPerWorldUnit, C.poolDepthMeters);
     const P = C.P_surface + C.rho * C.g * depthMeters;
 
     const totalMass =
-      C.astronautMass +
-      C.suitMass +
-      C.equipmentMass +
-      Math.max(-10, weightCount) * C.ballastStepKg;
+      C.astronautMass + C.suitMass + C.equipmentMass + Math.max(-10, weightCount) * C.ballastStepKg;
 
     const V_bc = (C.bcGasLitersSurface / 1000) * (C.P_surface / P);
     const freq = C.breathHz * (1 + C.breathVar * (Math.sin(t * 0.13) - 0.5));
-    const ampScale =
-      speedXZ < 0.15
-        ? C.breathAmplitudeScaleNeutral
-        : C.breathAmplitudeScaleMoving;
+    const ampScale = speedXZ < 0.15 ? C.breathAmplitudeScaleNeutral : C.breathAmplitudeScaleMoving;
     const V_lung =
-      ((C.lungTidalLiters * 0.5 * (1 + Math.sin(2 * Math.PI * freq * t)) +
-        0.15 * C.lungReserveLiters * Math.random()) /
+      ((C.lungTidalLiters * 0.5 * (1 + Math.sin(2 * Math.PI * freq * t)) + 0.15 * C.lungReserveLiters * Math.random()) /
         1000) *
       ampScale *
       (C.P_surface / P);
@@ -74,16 +61,11 @@ export default function useVerticalHydroReal(config = {}) {
     const dragN = 0.5 * C.rho * C.Cd_vert * C.A_vert * Math.abs(vy) * vy;
     const microN = C.microCurrentN * Math.sin(0.7 * t) * 0.2;
 
-    // 🔹 핵심: Trim을 포함한 실질 부력
     const Fnet = buoyancyN - weightN - dragN + microN + C.neutralTrimN;
 
     let newVy = vy + (Fnet / m_eff_y) * dt;
 
-    // 🔹 중성대역 내 속도 감쇠
-    if (
-      Math.abs(newVy) < C.neutralSpeedEPS &&
-      Math.abs(buoyancyN - weightN + C.neutralTrimN) < C.neutralForceN
-    ) {
+    if (Math.abs(newVy) < C.neutralSpeedEPS && Math.abs(buoyancyN - weightN + C.neutralTrimN) < C.neutralForceN) {
       newVy *= 0.3;
     }
 
@@ -101,16 +83,7 @@ export default function useVerticalHydroReal(config = {}) {
       newVy = 0;
     }
 
-    return {
-      newY,
-      newVy,
-      Fnet,
-      buoyancyN,
-      weightN,
-      totalMass,
-      depth: depthMeters,
-      P,
-    };
+    return { newY, newVy, Fnet, buoyancyN, weightN, totalMass, depth: depthMeters, P };
   }
 
   return { stepY, C };
