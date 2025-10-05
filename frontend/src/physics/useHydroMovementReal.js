@@ -6,19 +6,25 @@ export default function useHydroMovementReal(params = {}) {
     rho = 1000,
     mass = 114,
     vol = 0.09,
-    Cd_fwd = 0.9,
+    Cd_fwd = 0.2,
     Afwd = 0.35,
-    Cd_side = 1.2,
+    Cd_side = 0.3,
     Aside = 0.55,
     Ca_fwd = 0.15,
     Ca_side = 0.25,
-    thrustN = 80,
+    thrustN = 200,
     accelBoost = 1.6,
     thrustRiseTau = 0.08,
-    current = { base: 0.12, gust: 0.1, freq: 0.03, noiseScale: 0.18, wallDampenDist: 1.0 },
+    current = {
+      base: 0.12,
+      gust: 0.1,
+      freq: 0.03,
+      noiseScale: 0.18,
+      wallDampenDist: 1.0,
+    },
     turnDampK = 0.6,
-    vmax_fwd = 1.5,
-    vmax_side = 1.1,
+    vmax_fwd = 10.0,
+    vmax_side = 6.0,
     deadband_v = 0.015,
   } = params;
 
@@ -36,8 +42,10 @@ export default function useHydroMovementReal(params = {}) {
     return s - Math.floor(s);
   }
   function noise2D(x, y) {
-    const xi = Math.floor(x), yi = Math.floor(y);
-    const xf = x - xi, yf = y - yi;
+    const xi = Math.floor(x),
+      yi = Math.floor(y);
+    const xf = x - xi,
+      yf = y - yi;
     const s = hash(xi * 53.13 + yi * 91.17);
     const t = hash((xi + 1) * 53.13 + yi * 91.17);
     const u = hash(xi * 53.13 + (yi + 1) * 91.17);
@@ -47,14 +55,19 @@ export default function useHydroMovementReal(params = {}) {
     return s + (t - s) * sx + (u + (v_ - u) * sx - (s + (t - s) * sx)) * sy;
   }
   function smoothstep(edge0, edge1, x) {
-    const t = Math.min(1, Math.max(0, (x - edge0) / Math.max(1e-6, edge1 - edge0)));
+    const t = Math.min(
+      1,
+      Math.max(0, (x - edge0) / Math.max(1e-6, edge1 - edge0))
+    );
     return t * t * (3 - 2 * t);
   }
   function currentAt(x, z, t, bounds) {
-    const ns = current.noiseScale, base = current.base;
+    const ns = current.noiseScale,
+      base = current.base;
     const gust = current.gust * Math.sin(2 * Math.PI * current.freq * t + 1.3);
     const ang = noise2D(x * ns, z * ns) * Math.PI * 2;
-    const dirx = Math.cos(ang), dirz = Math.sin(ang);
+    const dirx = Math.cos(ang),
+      dirz = Math.sin(ang);
     let wall = 1.0;
     if (bounds?.box instanceof THREE.Box3) {
       const dx = Math.min(x - bounds.box.min.x, bounds.box.max.x - x);
@@ -64,8 +77,12 @@ export default function useHydroMovementReal(params = {}) {
       wall = smoothstep(0.0, R, d);
       wall = Math.max(0.08, wall);
     }
-    const swirl = 0.07 * (noise2D((x + 37.2) * ns * 0.7, (z - 12.8) * ns * 0.7) - 0.5);
-    V2_cur.set((base + gust) * dirx - swirl * dirz, (base + gust) * dirz + swirl * dirx).multiplyScalar(wall);
+    const swirl =
+      0.07 * (noise2D((x + 37.2) * ns * 0.7, (z - 12.8) * ns * 0.7) - 0.5);
+    V2_cur.set(
+      (base + gust) * dirx - swirl * dirz,
+      (base + gust) * dirz + swirl * dirx
+    ).multiplyScalar(wall);
     return V2_cur;
   }
   function emaUpdate(prev, target, dt, tau) {
@@ -80,19 +97,30 @@ export default function useHydroMovementReal(params = {}) {
     if (V3_fwd.lengthSq() < 1e-8) V3_fwd.set(0, 0, -1);
     V3_fwd.normalize();
     V3_right.copy(V3_fwd).cross(new THREE.Vector3(0, 1, 0)).normalize();
-    const fwdX = V3_fwd.x, fwdZ = V3_fwd.z;
+    const fwdX = V3_fwd.x,
+      fwdZ = V3_fwd.z;
 
-    let cmd_fwd = 0, cmd_side = 0;
+    let cmd_fwd = 0,
+      cmd_side = 0;
     if (moveKeys["KeyW"] || moveKeys["ArrowUp"]) cmd_fwd += 1;
     if (moveKeys["KeyS"] || moveKeys["ArrowDown"]) cmd_fwd -= 1;
     if (moveKeys["KeyA"] || moveKeys["ArrowLeft"]) cmd_side -= 1;
     if (moveKeys["KeyD"] || moveKeys["ArrowRight"]) cmd_side += 1;
     const hasInput = cmd_fwd !== 0 || cmd_side !== 0;
 
-    const cmd = hasInput ? thrustN * (moveKeys["ShiftLeft"] ? accelBoost : 1) : 0;
-    thrustState.current = emaUpdate(thrustState.current, cmd, dt, thrustRiseTau);
+    const cmd = hasInput
+      ? thrustN * (moveKeys["ShiftLeft"] ? accelBoost : 1)
+      : 0;
+    thrustState.current = emaUpdate(
+      thrustState.current,
+      cmd,
+      dt,
+      thrustRiseTau
+    );
 
-    const t = (typeof performance !== "undefined" ? performance.now() : Date.now()) * 0.001;
+    const t =
+      (typeof performance !== "undefined" ? performance.now() : Date.now()) *
+      0.001;
     const cur = currentAt(camera.position.x, camera.position.z, t, bounds);
 
     const v = velXZ.current;
@@ -108,8 +136,10 @@ export default function useHydroMovementReal(params = {}) {
     const yawRate = ang / Math.max(1e-6, dt);
     const turnFactor = 1 + turnDampK * yawRate;
 
-    const drag_f = 0.5 * rho * Cd_fwd * Afwd * Math.abs(v_fwd) * v_fwd * turnFactor;
-    const drag_s = 0.5 * rho * Cd_side * Aside * Math.abs(v_side) * v_side * turnFactor;
+    const drag_f =
+      0.5 * rho * Cd_fwd * Afwd * Math.abs(v_fwd) * v_fwd * turnFactor;
+    const drag_s =
+      0.5 * rho * Cd_side * Aside * Math.abs(v_side) * v_side * turnFactor;
 
     const mEff = Math.max(1e-6, effMass ?? mass);
     const m_eff_f = mEff + Ca_fwd * rho * vol;

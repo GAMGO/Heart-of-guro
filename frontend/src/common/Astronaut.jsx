@@ -5,17 +5,22 @@ import * as THREE from "three";
 
 export default function Astronaut({
   spawn = new THREE.Vector3(0, 1.75, 0),
-  headOffset = 0.85,
-  moveSpeed = 4.0,
+  headOffset = 10.0,
+  moveSpeed = 10.0,
 }) {
   const { camera } = useThree();
   const posRef = useRef(spawn.clone());
   const keys = useRef({});
 
-  // 키 입력 등록
   useEffect(() => {
-    const handleDown = (e) => (keys.current[e.code] = true);
-    const handleUp = (e) => (keys.current[e.code] = false);
+    const handleDown = (e) => {
+      if (e.code === "KeyF") return; // 🔥 F키는 Stage3(문 애니메이션)에 맡김
+      keys.current[e.code] = true;
+    };
+    const handleUp = (e) => {
+      if (e.code === "KeyF") return;
+      keys.current[e.code] = false;
+    };
     window.addEventListener("keydown", handleDown);
     window.addEventListener("keyup", handleUp);
     return () => {
@@ -24,21 +29,21 @@ export default function Astronaut({
     };
   }, []);
 
-  // 프레임마다 이동
   useFrame((_, dt) => {
     const dir = new THREE.Vector3();
     const forward = new THREE.Vector3();
     camera.getWorldDirection(forward);
     forward.y = 0;
     forward.normalize();
-    const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+    const right = new THREE.Vector3()
+      .crossVectors(forward, new THREE.Vector3(0, 1, 0))
+      .normalize();
 
     if (keys.current["KeyW"]) dir.add(forward);
     if (keys.current["KeyS"]) dir.sub(forward);
     if (keys.current["KeyA"]) dir.sub(right);
     if (keys.current["KeyD"]) dir.add(right);
-    if (keys.current["Space"]) dir.y += 1; // 상승
-    if (keys.current["ShiftLeft"] || keys.current["ShiftRight"]) dir.y -= 1; // 하강
+
 
     if (dir.lengthSq() > 0) {
       dir.normalize().multiplyScalar(moveSpeed * dt);

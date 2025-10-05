@@ -16,7 +16,7 @@ export const HYDRO_CONFIG = {
   Aside: 0.55,
   Ca_fwd: 0.15,
   Ca_side: 0.25,
-  thrustN: 42, // ← 움직임 강화
+  thrustN: 200, // ← 움직임 강화
   accelBoost: 1.6,
   thrustRiseTau: 0.05, // ← 반응성 향상
   deadband_v: 0.001, // ← 미세 속도도 감지
