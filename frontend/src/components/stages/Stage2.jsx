@@ -355,7 +355,7 @@ export default function Stage({ onComplete }) {
       <StageShell
         camera={{ position: [SPAWN_POS.x, SPAWN_POS.y, SPAWN_POS.z], fov: 75 }}
         envPreset="warehouse"
-        title={<HUD title="Training Stage" extra={null} />}
+        title={<HUD title="External Wall Repair Training" extra={null} />}
       >
         <Suspense fallback={null}>
           <StageInner onComplete={onComplete} />
